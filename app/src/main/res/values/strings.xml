@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">콜잡이</string>
+    <string name="accessibility_service_label">콜잡이 매크로</string>
+    <string name="accessibility_service_description">
+        콜 화면이 뜨면 \'확정추적\' 버튼을 자동으로 탭합니다.
+        화면 내용 읽기와 제스처 주입 권한이 필요합니다.
+    </string>
+
+    <!-- 메인 화면 -->
+    <string name="title_status">상태</string>
+    <string name="title_filters">조건 필터</string>
+    <string name="title_target">타겟 버튼</string>
+
+    <string name="label_target_text">탐지할 텍스트</string>
+    <string name="default_target_text">확정추적</string>
+
+    <string name="label_min_distance">최소 거리(km)</string>
+    <string name="label_max_distance">최대 거리(km)</string>
+    <string name="label_min_fare">최소 요금(원)</string>
+    <string name="label_filter_enabled">필터 사용</string>
+
+    <string name="btn_grant_accessibility">접근성 권한 열기</string>
+    <string name="btn_grant_overlay">오버레이 권한 열기</string>
+    <string name="btn_start_overlay">화면 토글 버튼 켜기</string>
+    <string name="btn_stop_overlay">화면 토글 버튼 끄기</string>
+    <string name="btn_save">저장</string>
+
+    <string name="status_on">매크로 동작중</string>
+    <string name="status_off">매크로 정지</string>
+    <string name="status_accessibility_off">접근성 서비스 꺼짐</string>
+    <string name="status_accessibility_on">접근성 서비스 켜짐</string>
+    <string name="status_overlay_off">오버레이 권한 없음</string>
+    <string name="status_overlay_on">오버레이 권한 있음</string>
+
+    <string name="notif_channel_id">macro_channel</string>
+    <string name="notif_channel_name">콜잡이 매크로</string>
+    <string name="notif_capture_title">화면 캡처 활성</string>
+    <string name="notif_capture_text">이미지 매칭용 화면 캡처가 켜져 있습니다.</string>
+
+    <string name="overlay_label_on">ON</string>
+    <string name="overlay_label_off">OFF</string>
+
+    <!-- 동작 모드 -->
+    <string name="title_macro_mode">매크로 동작 모드</string>
+    <string name="mode_1_label">모드 1: 콜 즉시 확정추적</string>
+    <string name="mode_2_label">모드 2: 5초간 확정 → 확정추적</string>
+
+    <!-- 중지 모달 -->
+    <string name="stop_modal_title">매크로 시퀀스 동작중</string>
+    <string name="stop_modal_button">중지</string>
+</resources>
