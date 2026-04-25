@@ -24,6 +24,7 @@ object PreferencesManager {
     private const val KEY_CACHED_X = "cached_x"
     private const val KEY_CACHED_Y = "cached_y"
     private const val KEY_MACRO_MODE = "macro_mode"
+    private const val KEY_DEBUG_TOAST = "debug_toast"
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -63,6 +64,10 @@ object PreferencesManager {
     var cachedY: Int
         get() = singleton.getInt(KEY_CACHED_Y, -1)
         set(value) = singleton.edit().putInt(KEY_CACHED_Y, value).apply()
+
+    var debugToast: Boolean
+        get() = singleton.getBoolean(KEY_DEBUG_TOAST, false)
+        set(value) = singleton.edit().putBoolean(KEY_DEBUG_TOAST, value).apply()
 
     var macroMode: MacroMode
         get() = try {

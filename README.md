@@ -2,21 +2,47 @@
 
 Android Accessibility Service 기반의 "확정추적" 자동 탭 매크로.
 
+## 다운로드 (즉시 설치)
+
+[![Latest Release](https://img.shields.io/github/v/release/snh1217/QuickCallMacro)](https://github.com/snh1217/QuickCallMacro/releases/latest)
+
+폰 브라우저로 [Releases](https://github.com/snh1217/QuickCallMacro/releases/latest) 페이지의 `.apk` 파일 다운로드 → "출처를 알 수 없는 앱 설치" 허용 → 설치.
+
 ## 동작 방식
 
 ```
-[화면 변경 이벤트] → [노드 탐색: "확정추적"] → [좌표 추출 → 즉시 탭]
+[화면 변경 이벤트] → [노드 탐색: 모드별 타겟] → [좌표 추출 → 즉시 탭]
                           ↓ (실패)
                   [이미지 폴백: 색상 시그니처 매칭]
                           ↓
                   [좌표 → AccessibilityService dispatchGesture]
 ```
 
+### 두 가지 동작 모드
+- **모드 1 (즉시 추적)** — 콜 상세 화면 진입 즉시 "확정추적" 탭. 좌표 캐싱 사용.
+- **모드 2 (홀드 후 추적)** — "확정" 즉시 탭 → 1초 간격 5초간 반복 → 마지막에 "확정추적" 1회 탭.
+  - 화면 이탈 시 시퀀스 자동 중단
+  - 화면 상단 [중지] 모달로 즉시 취소 가능
+
+### 공통
 - **하이브리드 매칭**: Accessibility 노드 우선, 실패시 MediaProjection 캡처 + 이미지 매칭
-- **즉시 탭**: 디바운스 1.5초 외에는 지연 없음 (`duration=1ms`)
-- **좌표 캐싱**: 한 번 찾은 버튼 좌표는 SharedPreferences 에 저장, 다음번엔 매칭 스킵
-- **필터**: 거리(km) / 요금(원) 기준으로 조건 통과 시에만 탭
-- **오버레이 토글**: 화면 위 원형 버튼 (드래그 이동, 탭 ON/OFF)
+- **즉시 탭**: `dispatchGesture duration=1ms`
+- **필터**: 거리(km) / 요금(원) 조건 통과 시에만 탭
+- **오버레이 토글**: 화면 위 원형 버튼 (드래그 이동, 탭으로 시작/정지)
+- **디버그 토스트**: 매칭 경로(노드/캐시/이미지)를 토스트로 표시 — 튜닝 시 활용
+
+## 시작/정지 흐름
+
+권한 부여와 매크로 실행은 분리되어 있습니다. 권한만 켰다고 매크로가 도는 게 아닙니다.
+
+매크로 시작 진입점:
+- 메인 화면의 큰 [매크로 시작] 버튼
+- 화면 위 오버레이 토글 (OFF → ON)
+
+시작 시: 접근성/오버레이 권한 검증 → 캡처 권한 다이얼로그 1회 → 매크로 ON.
+정지 시: 캡처 서비스 같이 정지, 진행 중 시퀀스 즉시 취소.
+
+폰 재부팅 후엔 항상 OFF 상태로 시작합니다 (안전장치).
 
 ## 빌드 방법
 
@@ -46,25 +72,26 @@ Android Accessibility Service 기반의 "확정추적" 자동 탭 매크로.
 1. 앱 실행
 2. **접근성 권한 열기** → 설정에서 "콜잡이 매크로" 켜기
 3. **오버레이 권한 열기** → 다른 앱 위에 표시 허용
-4. **화면 토글 버튼 켜기** → 화면에 원형 버튼 등장
-5. 메인 앱으로 돌아오면 MediaProjection 권한 다이얼로그 → 허용 (이미지 폴백용)
-6. 필터 조건 입력 → **저장**
-7. 화면 위 토글 버튼 탭 → **ON** (초록색) 으로 변경
+4. (옵션) **화면 토글 버튼 켜기** → 화면에 원형 버튼 등장
+5. 동작 모드 / 필터 / 디버그 토스트 설정 → **저장**
+6. **[매크로 시작]** 버튼 탭 → 캡처 권한 다이얼로그 허용 → 매크로 ON
 
-이제 콜 화면이 뜨면 자동으로 "확정추적" 버튼이 눌립니다.
+이제 콜 상세 화면이 뜨면 모드 설정대로 자동 동작합니다. 정지하려면 [매크로 정지] 또는 화면 위 토글 OFF.
 
 ## 파일 구조
 
 ```
 app/src/main/java/com/quickcall/macro/
-├── App.kt                    Application (PreferencesManager 초기화)
-├── MainActivity.kt           설정 UI
-├── CallMacroService.kt       핵심: Accessibility + 노드 탐색 + 탭
+├── App.kt                    Application (콜드 스타트 시 enabled=false)
+├── MainActivity.kt           설정 UI + 시작/정지 버튼
+├── MacroController.kt        시작/정지 로직 중앙화 (권한 검증 + 캡처 요청)
+├── CallMacroService.kt       핵심: Accessibility + 노드 탐색 + 모드 1/2 시퀀스
 ├── ScreenCaptureService.kt   MediaProjection 폴백 (on-demand 캡처)
 ├── ImageMatcher.kt           색상 시그니처 매칭
 ├── ImageMatchBridge.kt       Accessibility ↔ Capture 다리
-├── OverlayService.kt         화면 위 토글 버튼
-└── PreferencesManager.kt     설정값 저장소
+├── OverlayService.kt         화면 위 토글 버튼 (시작/정지 진입점)
+├── StopModalService.kt       모드 2 시퀀스 동작중 표시되는 [중지] 모달
+└── PreferencesManager.kt     설정값 저장소 + MacroMode enum
 ```
 
 ## 주요 튜닝 포인트
@@ -84,8 +111,9 @@ app/src/main/java/com/quickcall/macro/
 ## 알려진 한계
 
 - **앱이 자체 OpenGL/Canvas 렌더링** 이라 노드가 안 잡히면 이미지 폴백에 의존
-- **MediaProjection 권한** 은 폰 재부팅이나 앱 재실행 시 매번 새로 받아야 함
+- **MediaProjection 권한** 은 폰 재부팅이나 앱 재실행 시 매번 새로 받아야 함 (재부팅 시 매크로는 자동 OFF 로 시작)
 - **탐지/규제** 가능성 — 사용자가 자기 책임 하에 사용
+- 디버그 키 서명 APK — 정식 배포는 아님
 
 ## 개발 메모
 

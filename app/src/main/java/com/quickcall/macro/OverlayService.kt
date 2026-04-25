@@ -2,6 +2,7 @@ package com.quickcall.macro
 
 import android.app.Service
 import android.content.Intent
+import android.content.SharedPreferences
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
@@ -32,6 +33,10 @@ class OverlayService : Service() {
     private var view: View? = null
     private lateinit var label: TextView
     private lateinit var params: WindowManager.LayoutParams
+
+    private val prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == "macro_enabled") applyState()
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,9 +70,17 @@ class OverlayService : Service() {
 
         setupTouch()
         wm.addView(view, params)
+
+        // 외부(MainActivity / MacroController) 에서 enabled 가 바뀌면 라벨 자동 갱신
+        getSharedPreferences("quickcall_prefs", MODE_PRIVATE)
+            .registerOnSharedPreferenceChangeListener(prefsListener)
     }
 
     override fun onDestroy() {
+        try {
+            getSharedPreferences("quickcall_prefs", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(prefsListener)
+        } catch (_: Throwable) {}
         try {
             view?.let { wm.removeView(it) }
         } catch (_: Throwable) {}
@@ -77,12 +90,14 @@ class OverlayService : Service() {
     }
 
     private fun applyState() {
-        if (PreferencesManager.enabled) {
-            label.text = getString(R.string.overlay_label_on)
-            label.setBackgroundResource(R.drawable.overlay_bg_on)
-        } else {
-            label.text = getString(R.string.overlay_label_off)
-            label.setBackgroundResource(R.drawable.overlay_bg_off)
+        view?.post {
+            if (PreferencesManager.enabled) {
+                label.text = getString(R.string.overlay_label_on)
+                label.setBackgroundResource(R.drawable.overlay_bg_on)
+            } else {
+                label.text = getString(R.string.overlay_label_off)
+                label.setBackgroundResource(R.drawable.overlay_bg_off)
+            }
         }
     }
 
@@ -114,8 +129,12 @@ class OverlayService : Service() {
                 }
                 MotionEvent.ACTION_UP -> {
                     if (!moved) {
-                        // 단순 탭 → 토글
-                        PreferencesManager.enabled = !PreferencesManager.enabled
+                        // 단순 탭 → 매크로 시작/정지 (MacroController 가 권한/캡처 흐름 통제)
+                        if (PreferencesManager.enabled) {
+                            MacroController.stop(this)
+                        } else {
+                            MacroController.tryStartFromBackground(this)
+                        }
                         applyState()
                     }
                     true

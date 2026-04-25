@@ -9,6 +9,7 @@ import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.widget.Toast
 
 /**
  * 핵심 매크로 서비스.
@@ -90,6 +91,7 @@ class CallMacroService : AccessibilityService() {
                     val root = rootInActiveWindow
                     if (root == null || !isCallDetailScreenVisible(root)) {
                         Log.d(TAG, "콜 상세 화면 이탈 감지 → 시퀀스 중단")
+                        debug("화면 이탈 → 시퀀스 중단")
                         cancelSequence()
                     }
                     return
@@ -133,6 +135,7 @@ class CallMacroService : AccessibilityService() {
             lastTapAt = now
             tap(cx, cy)
             Log.d(TAG, "캐시 좌표로 즉시 탭: ($cx, $cy)")
+            debug("캐시 좌표 사용 ($cx, $cy)")
             return
         }
 
@@ -148,11 +151,13 @@ class CallMacroService : AccessibilityService() {
                 PreferencesManager.cachedY = y
                 tap(x, y)
                 Log.d(TAG, "노드 매칭 탭: ($x, $y)")
+                debug("노드 매칭됨 ($x, $y)")
                 return
             }
         }
 
         // 노드 폴백 실패 시 → 이미지 매처에 알림
+        debug("이미지 폴백 진입")
         ImageMatchBridge.requestMatch()
     }
 
@@ -166,6 +171,7 @@ class CallMacroService : AccessibilityService() {
         sequenceRunning = true
         sequenceStartedAt = System.currentTimeMillis()
         Log.i(TAG, "모드 2 시퀀스 시작")
+        debug("모드2 시퀀스 시작")
         StopModalService.show(this)
 
         // 즉시 첫 "확정" 탭
@@ -205,6 +211,7 @@ class CallMacroService : AccessibilityService() {
         if (x > 0 && y > 0) {
             tap(x, y)
             Log.d(TAG, "[모드2] 확정 탭: ($x, $y)")
+            debug("모드2 확정 탭")
         }
     }
 
@@ -220,9 +227,11 @@ class CallMacroService : AccessibilityService() {
                 if (x > 0 && y > 0) {
                     tap(x, y)
                     Log.i(TAG, "[모드2] 마지막 확정추적 탭: ($x, $y)")
+                    debug("모드2 종료 (확정추적)")
                 }
             } else {
                 Log.d(TAG, "[모드2] 확정추적 노드 없음")
+                debug("모드2 종료 (추적 노드 없음)")
             }
         }
         finishSequence()
@@ -336,6 +345,13 @@ class CallMacroService : AccessibilityService() {
         if (maxD > 0f && (distance == null || distance > maxD)) return false
         if (minF > 0 && (fare == null || fare < minF)) return false
         return true
+    }
+
+    private fun debug(msg: String) {
+        if (!PreferencesManager.debugToast) return
+        mainHandler.post {
+            try { Toast.makeText(applicationContext, msg, Toast.LENGTH_SHORT).show() } catch (_: Throwable) {}
+        }
     }
 
     /**

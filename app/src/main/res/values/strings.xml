@@ -49,4 +49,31 @@
     <!-- 중지 모달 -->
     <string name="stop_modal_title">매크로 시퀀스 동작중</string>
     <string name="stop_modal_button">중지</string>
+
+    <!-- 시작/정지 -->
+    <string name="title_macro_state">매크로 상태</string>
+    <string name="macro_state_on">동작 중</string>
+    <string name="macro_state_off">정지됨</string>
+    <string name="btn_start_macro">매크로 시작</string>
+    <string name="btn_stop_macro">매크로 정지</string>
+
+    <!-- 토스트 -->
+    <string name="toast_macro_started">매크로 동작 시작</string>
+    <string name="toast_macro_stopped">매크로 정지</string>
+    <string name="toast_already_running">이미 동작 중입니다</string>
+    <string name="toast_need_accessibility">접근성 권한이 필요합니다</string>
+    <string name="toast_need_overlay">오버레이 권한이 필요합니다</string>
+
+    <!-- 캡처 거절 다이얼로그 -->
+    <string name="dlg_capture_denied_title">화면 캡처 권한 거절됨</string>
+    <string name="dlg_capture_denied_msg">이미지 매칭 폴백이 비활성화됩니다. 노드 매칭만 사용합니다. 그래도 시작하시겠습니까?</string>
+    <string name="dlg_continue_without">폴백 없이 시작</string>
+    <string name="dlg_cancel">취소</string>
+
+    <!-- 온보딩 안내 -->
+    <string name="onboarding_hint">먼저 아래 권한을 모두 허용해야 매크로를 시작할 수 있어요.</string>
+
+    <!-- 디버그 -->
+    <string name="title_debug">디버그</string>
+    <string name="label_debug_toast">동작 토스트 표시</string>
 </resources>

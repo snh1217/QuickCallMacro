@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v4 - 빌드 + GitHub 배포 완료 시점)
+# QuickCallMacro 인수인계 문서 (v5 - 시작/정지 흐름 재설계)
 
 > 작성일: 2026-04-25
-> 상태: v1.0.0 Release 발행 완료, 자동 빌드 동작 검증 완료, **실기기 테스트 미수행**
+> 상태: v1.0.1 시작/정지 분리 + 캡처 무한 다이얼로그 버그 수정 + 디버그 토스트 + 안전장치 적용
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -39,16 +39,40 @@ APK 출력: `app/build/outputs/apk/debug/app-debug.apk`
 ## 코드 구조 (현재 시점)
 ```
 app/src/main/java/com/quickcall/macro/
-├── App.kt                    # Application, PrefsManager 초기화
-├── MainActivity.kt           # 권한/모드/필터 설정 UI (ViewBinding)
-├── CallMacroService.kt       # 핵심 AccessibilityService (모드 1/2 구현)
+├── App.kt                    # Application, PrefsManager 초기화 + 콜드 스타트 시 enabled=false 강제
+├── MainActivity.kt           # 권한/모드/필터/디버그 설정 UI + 시작/정지 토글 버튼
+├── MacroController.kt        # 시작/정지 로직 중앙화 (권한 검증 → 캡처 요청 → enabled+오버레이 시작)
+├── CallMacroService.kt       # 핵심 AccessibilityService (모드 1/2 + 디버그 토스트 훅)
 ├── ScreenCaptureService.kt   # MediaProjection 폴백 (on-demand 캡처)
 ├── ImageMatcher.kt           # 색상 시그니처 매칭 (OpenCV 미사용)
 ├── ImageMatchBridge.kt       # AccessibilityService↔ScreenCaptureService 브리지
-├── OverlayService.kt         # 화면 위 ON/OFF 토글 버튼
+├── OverlayService.kt         # 화면 위 ON/OFF 토글 (MacroController 경유) + prefs 변경 감시
 ├── StopModalService.kt       # 모드 2 시퀀스 동작중 중지 모달
-└── PreferencesManager.kt     # SharedPreferences 래퍼 + MacroMode enum
+└── PreferencesManager.kt     # SharedPreferences 래퍼 + MacroMode + debugToast
 ```
+
+## 시작/정지 흐름 (v1.0.1에서 재설계됨)
+
+핵심 원칙: **권한 부여 ≠ 매크로 시작**. 명시적 시작 액션이 있을 때만 동작.
+
+진입점:
+- MainActivity의 [매크로 시작] 큰 버튼
+- OverlayService의 토글 (OFF→ON)
+
+흐름 (MacroController):
+1. 접근성/오버레이 권한 검증 → 누락 시 토스트 + 권한 화면 띄우고 종료
+2. 이미 enabled면 토스트 "이미 동작 중" 후 종료
+3. ScreenCaptureService 미구동이면 MediaProjection 다이얼로그 1회 표시
+4. 캡처 거절 시 → AlertDialog로 "폴백 없이 시작" / "취소" 선택
+5. enabled=true + OverlayService 시작 (없으면) + 토스트 "매크로 동작 시작"
+
+정지 시:
+- enabled=false
+- ScreenCaptureService 정지 (MediaProjection 자원 반환)
+- 진행 중 시퀀스 cancelSequence()
+- 토스트 "매크로 정지"
+
+오버레이에서 시작 시 캡처 권한 미보유 상태면 → MainActivity를 EXTRA_REQUEST_START 플래그와 함께 띄워 거기서 처리.
 
 ## 동작 모드
 ### 모드 1 (즉시 추적, 기본값)
@@ -83,6 +107,16 @@ app/src/main/java/com/quickcall/macro/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.1 변경 요약 (2026-04-25)
+- **버그 수정**: 접근성 허용 직후 onResume에서 자동으로 캡처 다이얼로그가 무한 호출되던 문제 → onResume에서 `requestProjection()` 제거.
+- **시작/정지 분리**: 권한 부여와 매크로 실행이 완전히 분리. 명시적 시작 액션이 있어야만 동작.
+- **MacroController 신설**: 권한 검증 → 캡처 다이얼로그 → enabled/오버레이 시작 흐름을 MainActivity와 OverlayService가 공유.
+- **콜드 스타트 안전장치**: App.onCreate에서 `enabled=false` 강제 → 폰 재부팅 후 자동 동작 방지.
+- **충돌 방지**: 이미 동작 중인 상태에서 시작 누르면 "이미 동작 중" 토스트.
+- **온보딩 힌트**: 권한 미비 시 메인 상단에 노란 안내 박스 표시.
+- **디버그 토스트**: 설정에서 ON 시 매칭 경로(노드/캐시/이미지/모드2 단계)를 토스트로 표시 → 실기기 튜닝용.
+- **오버레이 라벨 동기화**: MainActivity에서 시작/정지 시 오버레이 토글 라벨 자동 갱신 (SharedPreferences 리스너).
 
 ## 추천 다음 작업 (우선순위 순)
 

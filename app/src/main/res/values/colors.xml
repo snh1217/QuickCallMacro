@@ -10,4 +10,6 @@
     <color name="overlay_off">#FFB0BEC5</color>
     <color name="stop_modal_bg">#E6212121</color>
     <color name="stop_modal_btn">#FFE53935</color>
+    <color name="text_muted">#FF757575</color>
+    <color name="hint_bg">#FFFFF8E1</color>
 </resources>
