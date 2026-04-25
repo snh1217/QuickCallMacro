@@ -89,6 +89,16 @@ class OverlayService : Service() {
         super.onDestroy()
     }
 
+    /**
+     * 사용자가 최근앱 화면에서 앱을 스와이프해서 닫으면 호출됨.
+     * 매크로도 같이 정지.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try { MacroController.stop(this) } catch (_: Throwable) {}
+        stopSelf()
+    }
+
     private fun applyState() {
         view?.post {
             if (PreferencesManager.enabled) {

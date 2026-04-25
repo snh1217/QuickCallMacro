@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v5 - 시작/정지 흐름 재설계)
+# QuickCallMacro 인수인계 문서 (v6 - 구 필터 + 앱 종료 자동 OFF)
 
 > 작성일: 2026-04-25
-> 상태: v1.0.1 시작/정지 분리 + 캡처 무한 다이얼로그 버그 수정 + 디버그 토스트 + 안전장치 적용
+> 상태: v1.0.2 도착지 구 필터(슬롯 5개), 앱 스와이프 종료 시 자동 정지 적용
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -38,17 +38,24 @@ APK 출력: `app/build/outputs/apk/debug/app-debug.apk`
 
 ## 코드 구조 (현재 시점)
 ```
-app/src/main/java/com/quickcall/macro/
-├── App.kt                    # Application, PrefsManager 초기화 + 콜드 스타트 시 enabled=false 강제
-├── MainActivity.kt           # 권한/모드/필터/디버그 설정 UI + 시작/정지 토글 버튼
-├── MacroController.kt        # 시작/정지 로직 중앙화 (권한 검증 → 캡처 요청 → enabled+오버레이 시작)
-├── CallMacroService.kt       # 핵심 AccessibilityService (모드 1/2 + 디버그 토스트 훅)
-├── ScreenCaptureService.kt   # MediaProjection 폴백 (on-demand 캡처)
-├── ImageMatcher.kt           # 색상 시그니처 매칭 (OpenCV 미사용)
-├── ImageMatchBridge.kt       # AccessibilityService↔ScreenCaptureService 브리지
-├── OverlayService.kt         # 화면 위 ON/OFF 토글 (MacroController 경유) + prefs 변경 감시
-├── StopModalService.kt       # 모드 2 시퀀스 동작중 중지 모달
-└── PreferencesManager.kt     # SharedPreferences 래퍼 + MacroMode + debugToast
+app/src/main/
+├── assets/districts.json     # 행정구역 데이터 (시도/시군구 → 동/읍/면)
+└── java/com/quickcall/macro/
+    ├── App.kt                # 콜드 스타트 시 enabled=false + DistrictRepository 사전 로드
+    ├── MainActivity.kt       # 권한/모드/필터/디버그/구 설정 UI + 시작/정지 토글
+    ├── MacroController.kt    # 시작/정지 로직 중앙화 (권한 검증 → 캡처 → 오버레이 시작)
+    ├── CallMacroService.kt   # 핵심 AccessibilityService (모드 1/2 + 구 필터 + 도착지 파싱)
+    ├── ScreenCaptureService.kt # MediaProjection 폴백 + onTaskRemoved 자동 정지
+    ├── ImageMatcher.kt       # 색상 시그니처 매칭
+    ├── ImageMatchBridge.kt   # Accessibility ↔ Capture 브리지
+    ├── OverlayService.kt     # 오버레이 토글 + prefs 동기화 + onTaskRemoved 자동 정지
+    ├── StopModalService.kt   # 모드 2 중지 모달
+    ├── PreferencesManager.kt # SharedPreferences + MacroMode + debugToast + 슬롯 5개
+    ├── data/
+    │   └── DistrictRepository.kt # assets 로드, 정규화, 슬롯 키 확장
+    └── ui/
+        ├── DistrictSettingsActivity.kt  # 슬롯 라디오 + [편집]
+        └── DistrictSlotEditActivity.kt  # 시도 트리 + 검색 + 체크박스
 ```
 
 ## 시작/정지 흐름 (v1.0.1에서 재설계됨)
@@ -107,6 +114,17 @@ app/src/main/java/com/quickcall/macro/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.2 변경 요약 (2026-04-25)
+- **구 필터 (슬롯 5개)**: 사용자가 시/군/구를 슬롯에 미리 선택해두면 도착지 동/읍/면이 슬롯 범위일 때만 매크로 동작.
+- 슬롯 한 번에 하나만 활성. "사용 안 함" 옵션 포함.
+- 매칭 규칙: 화면 표기를 정규화 (숫자 제거 → 앞 2글자). 동은 동 이름 그대로, 읍/면은 시군구 prefix와 결합해서 정규화 (예: 평택시 + 진위면 → "평택진위면" → "평택").
+- 데이터: 법정동코드 전체자료 (FinanceData gist)에서 가공한 `assets/districts.json` (~33KB, 249 시군구, 5015 동/읍/면).
+- 빌드 스크립트: `scripts/build-districts.js` — 원본 변경 시 `node scripts/build-districts.js`로 재생성.
+- 도착지 파싱 우선순위: (1) 슬래시 패턴 `/dong/`, (2) "{시도} {시군구} {동}" 정규식, (3) "도착" 라벨 이후 첫 동/읍/면 토큰. 파싱 실패 시 안전 차단.
+- **앱 종료 시 자동 OFF**: OverlayService / ScreenCaptureService의 `onTaskRemoved` 오버라이드 → MacroController.stop. 최근앱 스와이프 종료 시 자동으로 매크로 정지.
+- 새 액티비티 2개: `ui.DistrictSettingsActivity` (슬롯 라디오), `ui.DistrictSlotEditActivity` (시도 트리 + 검색 + 체크박스 편집).
+- DistrictRepository: assets 백그라운드 로드 (App.onCreate에서 워커 스레드), 활성 슬롯 변경 시 키 셋 캐싱.
 
 ## v1.0.1 변경 요약 (2026-04-25)
 - **버그 수정**: 접근성 허용 직후 onResume에서 자동으로 캡처 다이얼로그가 무한 호출되던 문제 → onResume에서 `requestProjection()` 제거.

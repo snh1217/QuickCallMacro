@@ -27,9 +27,11 @@ Android Accessibility Service 기반의 "확정추적" 자동 탭 매크로.
 ### 공통
 - **하이브리드 매칭**: Accessibility 노드 우선, 실패시 MediaProjection 캡처 + 이미지 매칭
 - **즉시 탭**: `dispatchGesture duration=1ms`
-- **필터**: 거리(km) / 요금(원) 조건 통과 시에만 탭
+- **거리/요금 필터**: 옵션
+- **구 필터(슬롯 5개)**: 시/군/구 선택 → 도착지 동/읍/면이 슬롯 범위 안일 때만 동작 (전국 법정동 데이터 내장)
 - **오버레이 토글**: 화면 위 원형 버튼 (드래그 이동, 탭으로 시작/정지)
-- **디버그 토스트**: 매칭 경로(노드/캐시/이미지)를 토스트로 표시 — 튜닝 시 활용
+- **디버그 토스트**: 매칭 경로(노드/캐시/이미지/구필터)를 토스트로 표시 — 튜닝 시 활용
+- **앱 종료 시 자동 OFF**: 최근앱에서 스와이프해 닫으면 매크로도 정지
 
 ## 시작/정지 흐름
 
@@ -121,3 +123,5 @@ app/src/main/java/com/quickcall/macro/
 - targetSdk 34 (Android 14)
 - Kotlin 1.9.22, AGP 8.2.2, Gradle 8.5
 - OpenCV 의존성 없음 (색상 시그니처 매칭으로 대체)
+- 행정구역 데이터: 법정동코드 전체자료 ([FinanceData gist](https://gist.github.com/FinanceData/4b0a6e1818cea9e77496e57b84bb4565))를 `scripts/build-districts.js`로 가공해 `assets/districts.json` 으로 번들 (~33KB)
+- 데이터 갱신: `node scripts/build-districts.js` 다시 실행

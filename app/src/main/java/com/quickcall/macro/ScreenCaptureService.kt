@@ -106,6 +106,13 @@ class ScreenCaptureService : Service() {
         super.onDestroy()
     }
 
+    /** 앱이 최근앱에서 스와이프 종료될 때 매크로 자동 정지 */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        try { MacroController.stop(this) } catch (_: Throwable) {}
+        stopSelf()
+    }
+
     private fun setupVirtualDisplay() {
         val wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         val metrics = DisplayMetrics()

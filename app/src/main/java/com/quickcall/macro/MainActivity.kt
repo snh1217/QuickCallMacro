@@ -132,6 +132,9 @@ class MainActivity : AppCompatActivity() {
             }
             refreshStatus()
         }
+        b.btnDistrictManage.setOnClickListener {
+            startActivity(Intent(this, com.quickcall.macro.ui.DistrictSettingsActivity::class.java))
+        }
         b.btnSave.setOnClickListener { saveValues() }
     }
 
@@ -249,5 +252,16 @@ class MainActivity : AppCompatActivity() {
         b.tvOnboardingHint.visibility =
             if (accOn && ovOn) android.view.View.GONE
             else android.view.View.VISIBLE
+
+        // 활성 슬롯 표시
+        val active = PreferencesManager.activeSlotId
+        val activeLabel = if (active == 0) {
+            getString(R.string.district_active_none)
+        } else {
+            val name = PreferencesManager.getSlotName(active)
+            val cnt = PreferencesManager.getSlotKeys(active).size
+            "슬롯 $active: $name (선택 $cnt)"
+        }
+        b.tvDistrictActive.text = getString(R.string.fmt_district_active_label, activeLabel)
     }
 }

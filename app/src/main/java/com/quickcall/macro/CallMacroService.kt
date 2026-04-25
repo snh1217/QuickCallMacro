@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
+import com.quickcall.macro.data.DistrictRepository
 
 /**
  * 핵심 매크로 서비스.
@@ -65,6 +66,10 @@ class CallMacroService : AccessibilityService() {
     /** 진행 중인 시퀀스 Runnable 들 (취소용) */
     private val sequenceRunnables = mutableListOf<Runnable>()
 
+    /** 슬롯 변경 감지 + 키 캐싱 */
+    private var cachedSlotId = -1
+    private var cachedSlotKeys: Set<String> = emptySet()
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -107,7 +112,10 @@ class CallMacroService : AccessibilityService() {
     fun scanAndTap() {
         val root: AccessibilityNodeInfo = rootInActiveWindow ?: return
 
-        // 필터 검사 (모드 공통)
+        // 0) 구 필터 게이트 (활성 슬롯이 있을 때만)
+        if (!passDistrictFilter(root)) return
+
+        // 필터 검사 (거리/요금)
         if (PreferencesManager.filterEnabled) {
             val (distance, fare) = parseDistanceAndFare(root)
             if (!passFilter(distance, fare)) {
@@ -345,6 +353,91 @@ class CallMacroService : AccessibilityService() {
         if (maxD > 0f && (distance == null || distance > maxD)) return false
         if (minF > 0 && (fare == null || fare < minF)) return false
         return true
+    }
+
+    // ─── 구 필터 ─────────────────────────────────────
+
+    /**
+     * 활성 슬롯이 있으면 도착지 동/읍/면을 파싱해서 매칭.
+     * 도착지 파싱 실패 시 안전하게 차단.
+     * 활성 슬롯 없거나 슬롯이 비어있으면 항상 통과.
+     */
+    private fun passDistrictFilter(root: AccessibilityNodeInfo): Boolean {
+        val active = PreferencesManager.activeSlotId
+        if (active == 0) return true
+        val rawKeys = PreferencesManager.getSlotKeys(active)
+        if (rawKeys.isEmpty()) return true
+
+        // 슬롯 키 캐싱 (활성 슬롯이 바뀌면 재계산)
+        if (cachedSlotId != active) {
+            try { DistrictRepository.ensureLoaded(applicationContext) } catch (_: Throwable) {}
+            cachedSlotKeys = DistrictRepository.expandKeysForSelection(rawKeys)
+            cachedSlotId = active
+        }
+        if (cachedSlotKeys.isEmpty()) return true
+
+        val destDong = parseDestinationDong(root)
+        if (destDong == null) {
+            debug("도착지 파싱 실패 → 차단")
+            return false
+        }
+        val destKey = DistrictRepository.normalizeKey(destDong)
+        if (destKey !in cachedSlotKeys) {
+            debug("구 필터 차단: $destDong → $destKey")
+            return false
+        }
+        debug("구 필터 통과: $destDong → $destKey")
+        return true
+    }
+
+    /**
+     * 도착지 동/읍/면 텍스트 추출.
+     * 화면 표기 예: "경기 평택시 평택진위면 / 평택진위면 / *"
+     *
+     * 1차: 슬래시 구분 패턴 `/ {dong} /` 의 가운데 토큰 (가장 안정적인 short form)
+     * 2차: "{시도} {시군구} {동/읍/면}" 정규식 매칭의 마지막 토큰
+     * 3차 폴백: 가장 처음 나타나는 "...동/읍/면/가/로" 토큰
+     */
+    private fun parseDestinationDong(root: AccessibilityNodeInfo): String? {
+        val texts = collectAllTexts(root)
+        val joined = texts.joinToString(" ")
+
+        // 1차: 슬래시 패턴 (개별 노드)
+        val slashRegex = Regex("""/\s*([가-힣A-Za-z0-9]+(?:동|읍|면|가|로))\s*/""")
+        for (t in texts) {
+            slashRegex.find(t)?.let { return it.groupValues[1] }
+        }
+        // 1.5차: 슬래시 패턴 (전체 결합 텍스트)
+        slashRegex.find(joined)?.let { return it.groupValues[1] }
+
+        // 2차: 시군구 + 동 패턴 (전체 결합)
+        val sigRegex = Regex(
+            """([가-힣]+(?:특별시|광역시|특별자치시|특별자치도|도|시))\s+([가-힣]+(?:시|군|구))(?:\s+([가-힣]+(?:시|군|구)))?\s+([가-힣0-9]+(?:동|읍|면|가|로))"""
+        )
+        sigRegex.find(joined)?.let { return it.groupValues.last() }
+
+        // 3차: "도착" 라벨 이후 첫 동/읍/면 토큰
+        val tail = Regex("""([가-힣0-9]{2,}(?:동|읍|면))""")
+        val arrIdx = joined.indexOf("도착")
+        if (arrIdx >= 0) {
+            tail.find(joined, arrIdx + 1)?.let { return it.groupValues[1] }
+        }
+        return null
+    }
+
+    /** 노드 트리의 모든 텍스트를 수집 (DFS) */
+    private fun collectAllTexts(root: AccessibilityNodeInfo): List<String> {
+        val out = ArrayList<String>(64)
+        fun visit(n: AccessibilityNodeInfo?) {
+            if (n == null) return
+            val t = n.text?.toString()
+            if (!t.isNullOrBlank()) out.add(t)
+            val cd = n.contentDescription?.toString()
+            if (!cd.isNullOrBlank()) out.add(cd)
+            for (i in 0 until n.childCount) visit(n.getChild(i))
+        }
+        visit(root)
+        return out
     }
 
     private fun debug(msg: String) {

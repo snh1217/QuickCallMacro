@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:padding="12dp"
+    android:layout_marginTop="4dp"
+    android:background="@drawable/slot_card_bg"
+    android:clickable="true"
+    android:focusable="true">
+
+    <TextView
+        android:id="@+id/tvIndicator"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="▸"
+        android:textSize="14sp"
+        android:layout_marginEnd="8dp"/>
+
+    <TextView
+        android:id="@+id/tvSido"
+        android:layout_width="0dp"
+        android:layout_weight="1"
+        android:layout_height="wrap_content"
+        android:textSize="16sp"
+        android:textStyle="bold"/>
+
+    <TextView
+        android:id="@+id/tvCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="14sp"
+        android:textColor="@color/overlay_on"
+        android:textStyle="bold"
+        android:minWidth="24dp"
+        android:gravity="end"/>
+</LinearLayout>

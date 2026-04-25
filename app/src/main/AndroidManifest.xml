@@ -27,6 +27,16 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ui.DistrictSettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".ui.DistrictSlotEditActivity"
+            android:exported="false"
+            android:parentActivityName=".ui.DistrictSettingsActivity" />
+
         <!-- 핵심: 매크로 동작을 수행하는 AccessibilityService -->
         <service
             android:name=".CallMacroService"

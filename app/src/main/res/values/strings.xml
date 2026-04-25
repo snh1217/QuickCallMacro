@@ -76,4 +76,25 @@
     <!-- 디버그 -->
     <string name="title_debug">디버그</string>
     <string name="label_debug_toast">동작 토스트 표시</string>
+
+    <!-- 구 설정 -->
+    <string name="title_district">구 설정</string>
+    <string name="title_district_settings">구 슬롯 선택</string>
+    <string name="slot_none">사용 안 함 (모든 콜 통과)</string>
+    <string name="fmt_slot_label">슬롯 %1$d: %2$s (선택 %3$d개)</string>
+    <string name="fmt_slot_edit_title">슬롯 %1$d 편집</string>
+    <string name="fmt_district_active_label">활성: %1$s</string>
+    <string name="district_active_none">사용 안 함</string>
+    <string name="btn_edit">편집</string>
+    <string name="btn_manage">관리</string>
+    <string name="label_slot_name">슬롯 이름</string>
+    <string name="label_search">검색 (시군구 이름)</string>
+    <string name="fmt_dong_count">동/읍/면 %1$d개</string>
+    <string name="toast_slot_name_required">슬롯 이름을 입력하세요</string>
+    <string name="toast_saved">저장됨</string>
+
+    <!-- 디버그 토스트용 (구 필터) -->
+    <string name="debug_district_pass">구 필터 통과</string>
+    <string name="debug_district_block">구 필터 차단</string>
+    <string name="debug_dest_parse_fail">도착지 파싱 실패</string>
 </resources>

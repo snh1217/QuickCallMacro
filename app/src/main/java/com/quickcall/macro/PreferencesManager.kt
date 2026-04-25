@@ -25,6 +25,8 @@ object PreferencesManager {
     private const val KEY_CACHED_Y = "cached_y"
     private const val KEY_MACRO_MODE = "macro_mode"
     private const val KEY_DEBUG_TOAST = "debug_toast"
+    private const val KEY_ACTIVE_SLOT = "active_slot"
+    const val SLOT_COUNT = 5
 
     private fun prefs(ctx: Context): SharedPreferences =
         ctx.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
@@ -79,6 +81,28 @@ object PreferencesManager {
             MacroMode.MODE_1_INSTANT_TRACK
         }
         set(value) = singleton.edit().putString(KEY_MACRO_MODE, value.name).apply()
+
+    /** 0 = 사용 안 함, 1..SLOT_COUNT = 활성 슬롯 */
+    var activeSlotId: Int
+        get() = singleton.getInt(KEY_ACTIVE_SLOT, 0)
+        set(value) = singleton.edit().putInt(KEY_ACTIVE_SLOT, value.coerceIn(0, SLOT_COUNT)).apply()
+
+    fun getSlotName(id: Int): String {
+        return singleton.getString("slot_${id}_name", "슬롯 $id") ?: "슬롯 $id"
+    }
+
+    fun setSlotName(id: Int, name: String) {
+        singleton.edit().putString("slot_${id}_name", name).apply()
+    }
+
+    /** 슬롯에 선택된 시군구 키 집합. 키 형식 예: "경기/평택시", "경기/수원시/영통구" */
+    fun getSlotKeys(id: Int): Set<String> {
+        return singleton.getStringSet("slot_${id}_keys", emptySet()) ?: emptySet()
+    }
+
+    fun setSlotKeys(id: Int, keys: Set<String>) {
+        singleton.edit().putStringSet("slot_${id}_keys", keys).apply()
+    }
 
     private lateinit var singleton: SharedPreferences
 
