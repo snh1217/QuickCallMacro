@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v6 - 구 필터 + 앱 종료 자동 OFF)
+# QuickCallMacro 인수인계 문서 (v7 - 도착지 추출 정확도 + 결합 표기 매칭)
 
-> 작성일: 2026-04-25
-> 상태: v1.0.2 도착지 구 필터(슬롯 5개), 앱 스와이프 종료 시 자동 정지 적용
+> 작성일: 2026-04-26
+> 상태: v1.0.3 도착지 추출 라벨 기반 3단 폴백 + 다중 키 정규화 + 단위 테스트 19건 (모두 통과)
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -52,10 +52,19 @@ app/src/main/
     ├── StopModalService.kt   # 모드 2 중지 모달
     ├── PreferencesManager.kt # SharedPreferences + MacroMode + debugToast + 슬롯 5개
     ├── data/
-    │   └── DistrictRepository.kt # assets 로드, 정규화, 슬롯 키 확장
+    │   └── DistrictRepository.kt # assets 로드, expandKeysForSelection (DistrictKeyGenerator 위임)
+    ├── parser/                  # 안드로이드 의존성 없음 (단위 테스트 가능)
+    │   ├── BBox.kt              # 좌표 박스
+    │   ├── ParseNode.kt         # AccessibilityNodeInfo 미러 트리
+    │   ├── DongTokenExtractor.kt # 동/읍/면 토큰 추출 + 메타 토큰 필터
+    │   ├── DestinationParser.kt # 3단 폴백 도착지 추출
+    │   └── DistrictKeyGenerator.kt # 다중 키 정규화
     └── ui/
-        ├── DistrictSettingsActivity.kt  # 슬롯 라디오 + [편집]
-        └── DistrictSlotEditActivity.kt  # 시도 트리 + 검색 + 체크박스
+        ├── DistrictSettingsActivity.kt
+        └── DistrictSlotEditActivity.kt
+
+app/src/test/java/com/quickcall/macro/
+└── DestinationMatchingTest.kt  # 19건 단위 테스트
 ```
 
 ## 시작/정지 흐름 (v1.0.1에서 재설계됨)
@@ -114,6 +123,32 @@ app/src/main/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.3 변경 요약 (2026-04-26)
+- **도착지 추출 전면 재작성** ([DestinationParser.kt](app/src/main/java/com/quickcall/macro/parser/DestinationParser.kt))
+  - 1단: "도착" 라벨 노드의 같은 부모 형제 텍스트
+  - 2단: "도착" 라벨의 같은 행 좌표(Y±100px) + 오른쪽 위치 노드들
+  - 3단: 화면 전체 결합 텍스트의 "도착" 단어 이후 ~50자 슬라이스 (중간에 "출발" 나오면 컷)
+  - 라벨은 정확히 `text == "도착"` 또는 `"도착:"` 만 인정. **부분 매칭 금지** ("도착시간", "도착예정" 등 무시).
+- **메타 토큰 필터** ([DongTokenExtractor.kt](app/src/main/java/com/quickcall/macro/parser/DongTokenExtractor.kt))
+  - "바로", "직접", "픽업", "현장", "즉시", "서명", "콜픽업" 으로 시작하는 토큰 제외
+  - "도착", "출발", "*", "-", 결제 수단(신용/현금/미터/외상/선결제) 등 정확히 일치 제외
+  - 전화번호 패턴 제외
+- **다중 키 정규화** ([DistrictKeyGenerator.kt](app/src/main/java/com/quickcall/macro/parser/DistrictKeyGenerator.kt))
+  - 슬롯 등록 한 항목 (예: 서초구 반포동) → `{반포, 서초반포, 서초}` 다중 키
+  - 3단계 (예: 용인시 처인구 역북동) → `{역북, 처인역북, 처인, 용인역북, 용인}`
+  - 도착지 화면 토큰 (예: 서초반포동) → `{서초, 서초반포, 반포}` 다중 키
+  - 매칭은 **셋 교집합** (`intersect`) 으로 수행. 한 키라도 겹치면 통과.
+- **순수 함수 모듈로 분리** — `parser/` 패키지에 안드로이드 의존성 없는 순수 코드 배치 → 단위 테스트 가능
+- **단위 테스트 19건 추가** ([DestinationMatchingTest.kt](app/src/test/java/com/quickcall/macro/DestinationMatchingTest.kt))
+  - 추출 시나리오 7건: 사례 1~4 (평택진위면/마곡동/서초반포동/성수동) + 좌표 폴백 + 텍스트 슬라이스 + "도착시간" 부분 매칭 거부
+  - 매칭 시나리오 12건: 통과/차단 케이스 망라 (강서구·서초구·평택시·화성시·성동구·강남구·용인 처인구)
+  - 실행: `./gradlew.bat --no-daemon testDebugUnitTest`
+- **디버그 토스트 변경**
+  - 추출 단계: "도착 추출 [1단/2단/3단]: {token}"
+  - 추출 실패: "도착지 노드 미발견 → 차단"
+  - 매칭 통과: "필터 통과: {token} → {매칭 키 셋}"
+  - 매칭 차단: "필터 차단: {token} → {도착지 키 셋}"
 
 ## v1.0.2 변경 요약 (2026-04-25)
 - **구 필터 (슬롯 5개)**: 사용자가 시/군/구를 슬롯에 미리 선택해두면 도착지 동/읍/면이 슬롯 범위일 때만 매크로 동작.

@@ -1,6 +1,7 @@
 package com.quickcall.macro.data
 
 import android.content.Context
+import com.quickcall.macro.parser.DistrictKeyGenerator
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -82,38 +83,34 @@ object DistrictRepository {
     /** 시군구 경로 → 화면 표시용 이름 (마지막 토큰) */
     fun displayName(key: String): String = key.substringAfterLast('/')
 
-    /** "경기/평택시" → "평택", "경기/수원시/영통구" → "영통" 등 (화면 표기 prefix 추출용) */
-    fun sigunguPrefix(key: String): String {
-        val last = key.substringAfterLast('/')
-        return last.replace(Regex("(시|군|구)$"), "")
-    }
-
     /**
-     * 사용자 화면 표기 기준 정규화.
-     * 숫자 제거 → 앞 2글자 (2글자 미만이면 그대로).
-     */
-    fun normalizeKey(name: String): String {
-        val cleaned = name.replace(Regex("[0-9]"), "")
-        return if (cleaned.length >= 2) cleaned.substring(0, 2) else cleaned
-    }
-
-    /**
-     * 슬롯에 선택된 시군구들 → 매칭에 쓸 정규화 키 집합.
-     *  - 동(동/가/로)은 동 이름 자체로 정규화
-     *  - 읍/면은 시군구 prefix + 이름 결합 형태로 정규화 (예: 평택+진위면 → 평택)
+     * 슬롯에 선택된 시군구들 → 매칭에 쓸 키 집합.
+     *
+     * 시군구 path 의 마지막 행정 토큰을 단축형(시/군/구 접미사 제거)으로 만들고,
+     * 3단계(시/구)면 시 단축 + 구 단축 둘 다 사용해서
+     * 각 동/읍/면마다 keysForSlotEntry 로 다중 키 생성.
+     *
+     * 예) "경기/용인시/처인구" + 그 안의 "역북동"
+     *     → sigunguShort="용인", guShort="처인" → {"역북","처인역북","처인","용인역북","용인"}
      */
     fun expandKeysForSelection(selectedSigunguPaths: Set<String>): Set<String> {
         val out = HashSet<String>()
         for (path in selectedSigunguPaths) {
-            val dongs = map[path] ?: continue
-            val prefix = sigunguPrefix(path)
+            val parts = path.split('/')
+            // parts[0] = 시도단축, parts[1] = 시군구, parts.getOrNull(2) = 구
+            val sigungu = parts.getOrNull(1) ?: continue
+            val gu = parts.getOrNull(2)
+            val sigunguShort = DistrictKeyGenerator.stripAdminSuffix(sigungu)
+            val guShort = gu?.let { DistrictKeyGenerator.stripAdminSuffix(it) }
+
+            val dongs = map[path] ?: emptyList()
             for (dong in dongs) {
-                val display = if (dong.endsWith("읍") || dong.endsWith("면")) {
-                    prefix + dong
-                } else {
-                    dong
-                }
-                out.add(normalizeKey(display))
+                out.addAll(DistrictKeyGenerator.keysForSlotEntry(sigunguShort, guShort, dong))
+            }
+            // 동이 하나도 없는 시군구라도 시군구/구 단축 키는 추가 (사용자가 시 전체 선택의 의미)
+            if (dongs.isEmpty()) {
+                if (sigunguShort.isNotEmpty()) out.add(DistrictKeyGenerator.take(sigunguShort, 2))
+                if (guShort?.isNotEmpty() == true) out.add(DistrictKeyGenerator.take(guShort, 2))
             }
         }
         return out
