@@ -81,7 +81,7 @@
     <string name="title_district">구 설정</string>
     <string name="title_district_settings">구 슬롯 선택</string>
     <string name="slot_none">사용 안 함 (모든 콜 통과)</string>
-    <string name="fmt_slot_label">슬롯 %1$d: %2$s (선택 %3$d개)</string>
+    <string name="fmt_slot_label">슬롯 %1$d: %2$s (시군구 %3$d개 / 동·읍·면 %4$d개)</string>
     <string name="fmt_slot_edit_title">슬롯 %1$d 편집</string>
     <string name="fmt_district_active_label">활성: %1$s</string>
     <string name="district_active_none">사용 안 함</string>

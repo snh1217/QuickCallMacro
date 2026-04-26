@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v8 - 세로 라벨 그룹 / 짧은 동명 / 슬래시 폴백)
+# QuickCallMacro 인수인계 문서 (v9 - 통칭 매칭 + 동/읍/면 세부 선택)
 
-> 작성일: 2026-04-26
-> 상태: v1.0.4 도착지 추출 4단 폴백 + 메타 토큰 정제 정책 + 단위 테스트 27건 (모두 통과)
+> 작성일: 2026-04-27
+> 상태: v1.0.5 후보 리스트 매칭 + 동 단위 슬롯 편집 + v1.0.4 자동 마이그레이션 + 단위 테스트 34건 (모두 통과)
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -123,6 +123,40 @@ app/src/test/java/com/quickcall/macro/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.5 변경 요약 (2026-04-27)
+- **통칭 도착지 매칭** — "동탄/광교/위례/송도" 같은 신도시·택지 통칭 콜 추출.
+  - DongTokenExtractor 가 단일 토큰 반환 → **후보 리스트** (3-tier) 반환으로 변경
+  - Tier 1: 동/읍/면/리/가/로 접미사 토큰 (가장 강함)
+  - Tier 2: 슬래시 패턴 한글 토큰 (`/ 동탄 / *`)
+  - Tier 3: 일반 한글 2~5자 (라벨/메타 단어 제외)
+  - Outcome.tokens: List<String> (token 은 첫 번째 후보 alias)
+  - 매칭은 모든 후보의 키 union vs 슬롯 키 셋 교집합
+- **동/읍/면 세부 선택** — 슬롯 데이터 구조 변경.
+  - 기존: `Set<시군구 path>` (시군구 단위)
+  - 변경: `Map<시군구 path, Set<동 이름>>` (동 단위 세부 선택)
+  - DistrictSlot 데이터 클래스 + JSON 직렬화 ([DistrictSlot.kt](app/src/main/java/com/quickcall/macro/data/DistrictSlot.kt))
+  - DistrictRepository.normalizedKeysForSlot 신규 — 선택된 동만 키 생성
+  - 화성시처럼 면적 큰 시에서 동탄만 선택, 봉담/향남 제외 가능
+- **v1.0.4 → v1.0.5 자동 마이그레이션**
+  - 첫 진입 시 기존 시군구 셋 → "그 시군구의 모든 동 선택" 상태로 변환
+  - `migration_v105_done` 플래그로 1회만 수행
+  - App.onCreate 백그라운드 스레드에서 DistrictRepository 로드 후 실행
+- **슬롯 편집 UI 재구성** ([DistrictSlotEditActivity.kt](app/src/main/java/com/quickcall/macro/ui/DistrictSlotEditActivity.kt))
+  - 3단 트리: 시도(▶) → 시군구 (3-state ☑ + 동 갯수) → 동 ☑
+  - 시군구 체크박스 클릭 → 모든 동 토글 (전체체크 → 모두해제, 부분/없음 → 모두선택)
+  - 동 체크박스 변경 → 시군구 3-state 자동 갱신
+  - 동 행은 시군구 펼칠 때 lazy 생성 (5015개 동 한 번에 안 만듦)
+  - 검색창 — 시군구 이름 + 동 이름 부분 매칭, 매칭 시 자동 펼침
+  - MaterialCheckBox.checkedState (CHECKED / UNCHECKED / INDETERMINATE) 사용
+- **슬롯 요약 표시 변경**
+  - 기존: "슬롯 1: name (선택 3개)"
+  - 신규: "슬롯 1: name (시군구 3개 / 동·읍·면 47개)"
+- **단위 테스트 34건** (7건 추가)
+  - 통칭 단독 토큰 추출 (동탄/광교/위례)
+  - 라벨 단어 후보 제외
+  - 동탄 콜 + 화성시 슬롯 매칭
+  - 화성시 동탄만 선택 + 동탄 통과 / 향남 차단
 
 ## v1.0.4 변경 요약 (2026-04-26)
 - **세로 라벨 그룹 대응**: 실기기에서 발견된 두 케이스 (성수동, 유방동) 처리.

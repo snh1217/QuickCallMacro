@@ -259,8 +259,10 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.district_active_none)
         } else {
             val name = PreferencesManager.getSlotName(active)
-            val cnt = PreferencesManager.getSlotKeys(active).size
-            "슬롯 $active: $name (선택 $cnt)"
+            val slot = com.quickcall.macro.data.DistrictSlot.fromJson(
+                active, name, PreferencesManager.getSlotSelectionJson(active)
+            )
+            "슬롯 $active: $name (시군구 ${slot.activeSigunguCount()}개 / 동·읍·면 ${slot.activeDongCount()}개)"
         }
         b.tvDistrictActive.text = getString(R.string.fmt_district_active_label, activeLabel)
     }

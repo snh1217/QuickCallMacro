@@ -83,6 +83,29 @@ object DistrictRepository {
     /** 시군구 경로 → 화면 표시용 이름 (마지막 토큰) */
     fun displayName(key: String): String = key.substringAfterLast('/')
 
+    /** 시군구 경로 → 동/읍/면 리스트 별칭 (외부에서 명확한 이름 사용) */
+    fun getDongsForSigungu(sigunguKey: String): List<String> = getDongs(sigunguKey)
+
+    /**
+     * 슬롯의 정규화 키 셋 — 선택된 동/읍/면만 기반으로 생성.
+     * 비활성 시군구(동 0개)는 키에 안 들어감.
+     */
+    fun normalizedKeysForSlot(slot: DistrictSlot): Set<String> {
+        val out = HashSet<String>()
+        for ((path, selectedDongs) in slot.selectedDongsBySigungu) {
+            if (selectedDongs.isEmpty()) continue
+            val parts = path.split('/')
+            val sigungu = parts.getOrNull(1) ?: continue
+            val gu = parts.getOrNull(2)
+            val sigunguShort = DistrictKeyGenerator.stripAdminSuffix(sigungu)
+            val guShort = gu?.let { DistrictKeyGenerator.stripAdminSuffix(it) }
+            for (dong in selectedDongs) {
+                out.addAll(DistrictKeyGenerator.keysForSlotEntry(sigunguShort, guShort, dong))
+            }
+        }
+        return out
+    }
+
     /**
      * 슬롯에 선택된 시군구들 → 매칭에 쓸 키 집합.
      *

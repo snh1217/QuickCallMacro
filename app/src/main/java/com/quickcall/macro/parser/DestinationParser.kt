@@ -41,9 +41,11 @@ object DestinationParser {
     private val SIBLING_STOP_LABELS = listOf("출발", "픽업", "의뢰")
 
     data class Outcome(
-        val token: String?,
+        val tokens: List<String>,
         val tier: String  // "1단:라벨박스" / "2단:박스영역" / "3단:슬라이스" / "4단:슬래시" / "실패"
-    )
+    ) {
+        val token: String? get() = tokens.firstOrNull()
+    }
 
     /** 라벨로 인정할 텍스트 */
     private fun isArrivalLabel(text: String?): Boolean {
@@ -74,12 +76,12 @@ object DestinationParser {
         // 4단: 슬래시 패턴 (마지막 매치)
         parseBySlashPattern(flat)?.let { return Outcome(it, "4단:슬래시") }
 
-        return Outcome(null, "실패")
+        return Outcome(emptyList(), "실패")
     }
 
     // ───────────────────────── 1단 ─────────────────────────
 
-    private fun parseByLabelGroup(flat: List<ParseNode.Flat>): String? {
+    private fun parseByLabelGroup(flat: List<ParseNode.Flat>): List<String>? {
         val labels = flat.filter { isArrivalLabel(it.node.text) }
         for (lf in labels) {
             val labelBox = lf.parent ?: continue
@@ -101,8 +103,8 @@ object DestinationParser {
                     }
                 }
             }
-            val tok = DongTokenExtractor.extract(candidates)
-            if (tok != null) return tok
+            val toks = DongTokenExtractor.extractCandidates(candidates)
+            if (toks.isNotEmpty()) return toks
         }
         return null
     }
@@ -128,7 +130,7 @@ object DestinationParser {
 
     // ───────────────────────── 2단 ─────────────────────────
 
-    private fun parseByLabelBoxRegion(flat: List<ParseNode.Flat>): String? {
+    private fun parseByLabelBoxRegion(flat: List<ParseNode.Flat>): List<String>? {
         val labels = flat.filter { isArrivalLabel(it.node.text) }
         if (labels.isEmpty()) return null
 
@@ -178,15 +180,15 @@ object DestinationParser {
                     candidates.add(text)
                 }
             }
-            val tok = DongTokenExtractor.extract(candidates)
-            if (tok != null) return tok
+            val toks = DongTokenExtractor.extractCandidates(candidates)
+            if (toks.isNotEmpty()) return toks
         }
         return null
     }
 
     // ───────────────────────── 3단 ─────────────────────────
 
-    private fun parseByTextSlice(flat: List<ParseNode.Flat>): String? {
+    private fun parseByTextSlice(flat: List<ParseNode.Flat>): List<String>? {
         val joined = flat
             .mapNotNull { it.node.text }
             .filter { it.isNotBlank() }
@@ -200,7 +202,8 @@ object DestinationParser {
             if (idx in (arrIdx + 1) until sliceEnd) sliceEnd = idx
         }
         val slice = joined.substring(arrIdx, sliceEnd)
-        return DongTokenExtractor.extract(listOf(slice))
+        val toks = DongTokenExtractor.extractCandidates(listOf(slice))
+        return if (toks.isEmpty()) null else toks
     }
 
     // ───────────────────────── 4단 ─────────────────────────
@@ -210,25 +213,33 @@ object DestinationParser {
      * "/ XX동 / *" 우선 (가장 신뢰), 없으면 "/ XX동 / YY".
      * 같은 패턴이 여러 개면 마지막 매치 채택 — 도착지가 출발지보다 화면 아래.
      */
-    private fun parseBySlashPattern(flat: List<ParseNode.Flat>): String? {
+    private fun parseBySlashPattern(flat: List<ParseNode.Flat>): List<String>? {
         val joined = flat
             .mapNotNull { it.node.text }
             .filter { it.isNotBlank() }
             .joinToString(" ")
 
-        val withStar = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*\*""")
+        val withStarSuffix = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*\*""")
             .findAll(joined)
             .map { it.groupValues[1] }
             .filter { !DongTokenExtractor.isMetaToken(it) }
             .toList()
-        if (withStar.isNotEmpty()) return withStar.last()
+        if (withStarSuffix.isNotEmpty()) return listOf(withStarSuffix.last())
 
-        val general = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*[^/\s]+""")
+        // 통칭 (suffix 없는 한글 2~5자): "/ 동탄 / *"
+        val withStarBare = Regex("""/\s*([가-힣]{2,5})\s*/\s*\*""")
             .findAll(joined)
             .map { it.groupValues[1] }
             .filter { !DongTokenExtractor.isMetaToken(it) }
             .toList()
-        if (general.isNotEmpty()) return general.last()
+        if (withStarBare.isNotEmpty()) return listOf(withStarBare.last())
+
+        val generalSuffix = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*[^/\s]+""")
+            .findAll(joined)
+            .map { it.groupValues[1] }
+            .filter { !DongTokenExtractor.isMetaToken(it) }
+            .toList()
+        if (generalSuffix.isNotEmpty()) return listOf(generalSuffix.last())
         return null
     }
 }

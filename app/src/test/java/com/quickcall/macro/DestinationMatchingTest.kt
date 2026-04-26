@@ -3,8 +3,10 @@ package com.quickcall.macro
 import com.quickcall.macro.parser.BBox
 import com.quickcall.macro.parser.DestinationParser
 import com.quickcall.macro.parser.DistrictKeyGenerator
+import com.quickcall.macro.parser.DongTokenExtractor
 import com.quickcall.macro.parser.ParseNode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -304,6 +306,82 @@ class DestinationMatchingTest {
         assertTrue("용인유방동", pass("용인유방동", slot))
         // 단일 "유방동" → "유방" 키만 있고 슬롯에 없음 → 차단 (사용자가 유방동을 명시 등록해야 함)
         assertTrue("유방동(단일) 차단 기대", !pass("유방동", slot))
+    }
+
+    // ───────────── v1.0.5 — 통칭 매칭 ─────────────
+
+    @Test fun 통칭_동탄_단독_토큰_추출() {
+        val candidates = DongTokenExtractor.extractCandidates(listOf("동탄 / 동탄 / *"))
+        assertTrue("candidates=$candidates", "동탄" in candidates)
+    }
+
+    @Test fun 통칭_광교_단독_토큰_추출() {
+        val candidates = DongTokenExtractor.extractCandidates(listOf("광교 / 광교 / *"))
+        assertTrue("candidates=$candidates", "광교" in candidates)
+    }
+
+    @Test fun 통칭_위례_단독_토큰_추출() {
+        val candidates = DongTokenExtractor.extractCandidates(listOf("위례 / 위례 / *"))
+        assertTrue("candidates=$candidates", "위례" in candidates)
+    }
+
+    @Test fun 라벨_단어는_후보에서_제외() {
+        val candidates = DongTokenExtractor.extractCandidates(listOf("도착 / 출발 / 픽업 / 서명"))
+        assertFalse("도착" in candidates)
+        assertFalse("출발" in candidates)
+        assertFalse("픽업" in candidates)
+        assertFalse("서명" in candidates)
+    }
+
+    @Test fun 통칭_콜_화성시_슬롯_매칭() {
+        val slot = slotKeys(
+            Triple("화성", null, "동탄1동"),
+            Triple("화성", null, "동탄2동"),
+            Triple("화성", null, "동탄면")
+        )
+        // dest "동탄" → keys = {동탄}, slot keys 에 "동탄" 포함 → 통과
+        val candidates = DongTokenExtractor.extractCandidates(listOf("동탄 / 동탄 / *"))
+        val destKeys = HashSet<String>()
+        for (c in candidates) {
+            destKeys.addAll(DistrictKeyGenerator.keysFromDongToken(c))
+            destKeys.add(DistrictKeyGenerator.normalizeKey(c, 2))
+        }
+        assertTrue("destKeys=$destKeys, slot=$slot", destKeys.intersect(slot).isNotEmpty())
+    }
+
+    // ───────────── v1.0.5 — 동/읍/면 세부 선택 시뮬레이션 ─────────────
+
+    /** 슬롯에 화성시의 일부 동만 들어간 케이스 시뮬레이션 */
+    @Test fun 화성시_동탄만_선택_동탄콜_통과() {
+        val slot = slotKeys(
+            Triple("화성", null, "동탄1동"),
+            Triple("화성", null, "동탄6동"),
+            Triple("화성", null, "동탄면")
+        )
+        val candidates = DongTokenExtractor.extractCandidates(listOf("동탄 / 동탄 / *"))
+        val destKeys = HashSet<String>()
+        for (c in candidates) {
+            destKeys.addAll(DistrictKeyGenerator.keysFromDongToken(c))
+            destKeys.add(DistrictKeyGenerator.normalizeKey(c, 2))
+        }
+        assertTrue(destKeys.intersect(slot).isNotEmpty())
+    }
+
+    /** 화성시 동탄만 선택 → 향남읍은 차단 */
+    @Test fun 화성시_동탄만_선택_향남콜_차단() {
+        val slot = slotKeys(
+            Triple("화성", null, "동탄1동"),
+            Triple("화성", null, "동탄면")
+        )
+        // dest "향남읍 / 향남읍 / *" → suffix 토큰 "향남읍" 추출
+        val candidates = DongTokenExtractor.extractCandidates(listOf("향남읍 / 향남읍 / *"))
+        val destKeys = HashSet<String>()
+        for (c in candidates) {
+            destKeys.addAll(DistrictKeyGenerator.keysFromDongToken(c))
+            destKeys.add(DistrictKeyGenerator.normalizeKey(c, 2))
+        }
+        // 화성시 슬롯에 "향남" 키가 없어서 차단
+        assertFalse("destKeys=$destKeys, slot=$slot", destKeys.intersect(slot).isNotEmpty())
     }
 
     /** 출발지 오인 방지: 헤더 + 출발 + 도착에 다른 동들 */

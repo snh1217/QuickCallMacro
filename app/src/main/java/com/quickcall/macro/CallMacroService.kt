@@ -11,6 +11,7 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.Toast
 import com.quickcall.macro.data.DistrictRepository
+import com.quickcall.macro.data.DistrictSlot
 import com.quickcall.macro.parser.DestinationParser
 import com.quickcall.macro.parser.DistrictKeyGenerator
 
@@ -367,39 +368,49 @@ class CallMacroService : AccessibilityService() {
     private fun passDistrictFilter(root: AccessibilityNodeInfo): Boolean {
         val active = PreferencesManager.activeSlotId
         if (active == 0) return true
-        val rawKeys = PreferencesManager.getSlotKeys(active)
-        if (rawKeys.isEmpty()) return true
 
-        // 슬롯 키 캐싱 (활성 슬롯이 바뀌면 재계산)
+        // 슬롯 로드 (활성 변경 시 캐시 재계산)
         if (cachedSlotId != active) {
             try { DistrictRepository.ensureLoaded(applicationContext) } catch (_: Throwable) {}
-            cachedSlotKeys = DistrictRepository.expandKeysForSelection(rawKeys)
+            val slot = DistrictSlot.fromJson(
+                active,
+                PreferencesManager.getSlotName(active),
+                PreferencesManager.getSlotSelectionJson(active)
+            )
+            cachedSlotKeys = DistrictRepository.normalizedKeysForSlot(slot)
             cachedSlotId = active
         }
         if (cachedSlotKeys.isEmpty()) return true
 
-        // 1) 도착지 토큰 추출 (3단 폴백)
+        // 1) 도착지 후보 추출 (4단 폴백)
         val outcome = try {
             DestinationParser.parse(root)
         } catch (t: Throwable) {
             Log.w(TAG, "DestinationParser 예외", t)
-            DestinationParser.Outcome(null, "실패")
+            DestinationParser.Outcome(emptyList(), "실패")
         }
-        val destToken = outcome.token
-        if (destToken == null) {
+        val candidates = outcome.tokens
+        if (candidates.isEmpty()) {
             debug("도착지 노드 미발견 → 차단")
             return false
         }
-        debug("도착 추출 [${outcome.tier}]: $destToken")
+        val display = if (candidates.size <= 5) candidates.toString()
+        else candidates.take(5).toString().dropLast(1) + ", ... +${candidates.size - 5}]"
+        debug("도착 추출 [${outcome.tier}]: ${candidates.first()} 후보 $display")
 
-        // 2) 도착지 토큰 → 후보 키 집합 → 슬롯 키와 교집합
-        val destKeys = DistrictKeyGenerator.keysFromDongToken(destToken)
+        // 2) 후보들 → 키 집합 union → 슬롯 키와 교집합
+        val destKeys = HashSet<String>()
+        for (c in candidates) {
+            destKeys.addAll(DistrictKeyGenerator.keysFromDongToken(c))
+            // 통칭(접미사 없는 한글) 도 그대로 키 후보로 추가
+            destKeys.add(DistrictKeyGenerator.normalizeKey(c, 2))
+        }
         val intersection = destKeys.intersect(cachedSlotKeys)
         if (intersection.isEmpty()) {
-            debug("필터 차단: $destToken → $destKeys")
+            debug("필터 차단: ${candidates.first()} → $destKeys")
             return false
         }
-        debug("필터 통과: $destToken → $intersection")
+        debug("필터 통과: ${candidates.first()} → $intersection")
         return true
     }
 

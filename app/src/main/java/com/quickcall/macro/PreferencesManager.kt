@@ -26,6 +26,7 @@ object PreferencesManager {
     private const val KEY_MACRO_MODE = "macro_mode"
     private const val KEY_DEBUG_TOAST = "debug_toast"
     private const val KEY_ACTIVE_SLOT = "active_slot"
+    private const val KEY_MIGRATION_V105 = "migration_v105_done"
     const val SLOT_COUNT = 5
 
     private fun prefs(ctx: Context): SharedPreferences =
@@ -95,13 +96,47 @@ object PreferencesManager {
         singleton.edit().putString("slot_${id}_name", name).apply()
     }
 
-    /** 슬롯에 선택된 시군구 키 집합. 키 형식 예: "경기/평택시", "경기/수원시/영통구" */
-    fun getSlotKeys(id: Int): Set<String> {
+    /** v1.0.4 호환 — 시군구 경로 셋 (마이그레이션 후 제거됨) */
+    fun getLegacySlotKeys(id: Int): Set<String> {
         return singleton.getStringSet("slot_${id}_keys", emptySet()) ?: emptySet()
     }
 
-    fun setSlotKeys(id: Int, keys: Set<String>) {
-        singleton.edit().putStringSet("slot_${id}_keys", keys).apply()
+    private fun removeLegacySlotKeys(id: Int) {
+        singleton.edit().remove("slot_${id}_keys").apply()
+    }
+
+    /** v1.0.5 — 시군구 → 선택된 동 JSON */
+    fun getSlotSelectionJson(id: Int): String? {
+        return singleton.getString("slot_${id}_dongs", null)
+    }
+
+    fun setSlotSelectionJson(id: Int, json: String) {
+        singleton.edit().putString("slot_${id}_dongs", json).apply()
+    }
+
+    /** 마이그레이션 1회 완료 플래그 */
+    var migrationV105Done: Boolean
+        get() = singleton.getBoolean(KEY_MIGRATION_V105, false)
+        set(value) = singleton.edit().putBoolean(KEY_MIGRATION_V105, value).apply()
+
+    /** 마이그레이션: v1.0.4 시군구 셋 → v1.0.5 (시군구 → 모든 동) */
+    fun migrateV104ToV105(getDongs: (sigunguPath: String) -> List<String>) {
+        if (migrationV105Done) return
+        for (id in 1..SLOT_COUNT) {
+            val legacy = getLegacySlotKeys(id)
+            if (legacy.isEmpty()) continue
+            val obj = org.json.JSONObject()
+            for (path in legacy) {
+                val dongs = getDongs(path)
+                if (dongs.isEmpty()) continue
+                val arr = org.json.JSONArray()
+                for (d in dongs) arr.put(d)
+                obj.put(path, arr)
+            }
+            setSlotSelectionJson(id, obj.toString())
+            removeLegacySlotKeys(id)
+        }
+        migrationV105Done = true
     }
 
     private lateinit var singleton: SharedPreferences

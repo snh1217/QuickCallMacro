@@ -9,6 +9,7 @@ import android.widget.LinearLayout
 import androidx.appcompat.app.AppCompatActivity
 import com.quickcall.macro.PreferencesManager
 import com.quickcall.macro.R
+import com.quickcall.macro.data.DistrictSlot
 import com.quickcall.macro.databinding.ActivityDistrictSettingsBinding
 import com.quickcall.macro.databinding.ItemDistrictSlotBinding
 
@@ -76,8 +77,12 @@ class DistrictSettingsActivity : AppCompatActivity() {
         for ((i, row) in slotRows.withIndex()) {
             val id = i + 1
             val name = PreferencesManager.getSlotName(id)
-            val keysCount = PreferencesManager.getSlotKeys(id).size
-            row.tvSlot.text = getString(R.string.fmt_slot_label, id, name, keysCount)
+            val slot = DistrictSlot.fromJson(id, name, PreferencesManager.getSlotSelectionJson(id))
+            row.tvSlot.text = getString(
+                R.string.fmt_slot_label,
+                id, name,
+                slot.activeSigunguCount(), slot.activeDongCount()
+            )
             row.indicator.isSelected = (id == active)
         }
     }
