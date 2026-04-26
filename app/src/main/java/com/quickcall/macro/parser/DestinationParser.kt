@@ -4,27 +4,45 @@ import android.view.accessibility.AccessibilityNodeInfo
 import kotlin.math.abs
 
 /**
- * 도착지 동/읍/면 추출기. 3단 폴백.
+ * 도착지 동/읍/면 추출기. 4단 폴백 (v1.0.4).
  *
- *  1단: "도착" 라벨 노드의 같은 부모 형제 텍스트에서 추출
- *  2단: "도착" 라벨 좌표 기준 같은 행(Y±tol) + 오른쪽 노드들에서 추출
- *  3단: 화면 전체 결합 텍스트에서 "도착" 단어 이후 ~50자 슬라이스
- *       (단, 그 안에서 "출발" 단어 만나면 거기서 컷)
+ *  1단 (라벨박스): "도착" 라벨이 속한 ViewGroup(부모) 의 모든 자식 +
+ *                  부모의 후속 형제 ViewGroup 들 — 단, 형제에 다른
+ *                  최상위 라벨(출발/픽업/의뢰)이 있으면 거기서 멈춤
+ *  2단 (박스영역): 라벨 박스의 boundsInScreen 기준 — 우측/하단 영역에
+ *                  걸치는 모든 노드 텍스트. 다음 라벨 박스 만나면 컷.
+ *  3단 (슬라이스): 화면 결합 텍스트의 "도착" 단어 이후 ~200자 슬라이스
+ *                  (출발/픽업/의뢰/물품/차량/탁송료/요금/구분/형태/적요/
+ *                  상세/인수증 단어 만나면 컷)
+ *  4단 (슬래시): 화면 전체 결합 텍스트에서 `/ XX동 / *` 패턴, 마지막 매치
+ *                우선 (도착지가 출발지보다 화면 아래에 위치)
  *
- *  중요: "도착" 부분 매칭 절대 사용 금지.
- *       정확히 "도착" 또는 "도착:" 인 노드만 라벨로 인정.
+ *  라벨 매칭은 정확 일치만: text == "도착" 또는 "도착:".
+ *  부분 매칭("도착시간", "도착예정") 절대 사용 금지.
  */
 object DestinationParser {
 
-    /** 좌표 기반 폴백의 Y 허용 오차 (px) */
+    /** 좌표 폴백의 Y 확장 (px) */
+    const val Y_BOX_EXTEND = 50
+
+    /** 슬라이스 폴백의 최대 슬라이스 길이 */
+    const val SLICE_MAX = 200
+
+    /** 좌표 기반 라벨 같은 행 폴백의 Y 허용 오차 (px) — 2단 보조 */
     const val Y_TOLERANCE = 100
 
-    /** 텍스트 슬라이스 폴백의 최대 슬라이스 길이 */
-    const val SLICE_MAX = 50
+    /** 3단 슬라이스 컷 단어 */
+    private val SLICE_STOP_WORDS = listOf(
+        "출발", "픽업", "의뢰", "물품", "차량",
+        "탁송료", "요금", "구분", "형태", "적요", "상세", "인수증"
+    )
+
+    /** 형제 박스 진입 차단 라벨 (1단) */
+    private val SIBLING_STOP_LABELS = listOf("출발", "픽업", "의뢰")
 
     data class Outcome(
-        val token: String?,  // null = 추출 실패
-        val tier: String     // "1단" / "2단" / "3단" / "실패"
+        val token: String?,
+        val tier: String  // "1단:라벨박스" / "2단:박스영역" / "3단:슬라이스" / "4단:슬래시" / "실패"
     )
 
     /** 라벨로 인정할 텍스트 */
@@ -32,12 +50,6 @@ object DestinationParser {
         if (text == null) return false
         val t = text.trim()
         return t == "도착" || t == "도착:" || t == "도 착"
-    }
-
-    private fun isDepartureLabel(text: String?): Boolean {
-        if (text == null) return false
-        val t = text.trim()
-        return t == "출발" || t == "출발:" || t == "출 발"
     }
 
     /** 메인 진입점 (런타임용) */
@@ -49,52 +61,174 @@ object DestinationParser {
     /** 메인 진입점 (테스트/순수 함수) */
     fun parseNode(root: ParseNode): Outcome {
         val flat = root.flatten()
+
+        // 1단: 라벨 박스 + 후속 형제 박스
+        parseByLabelGroup(flat)?.let { return Outcome(it, "1단:라벨박스") }
+
+        // 2단: 라벨 박스 영역 (좌표)
+        parseByLabelBoxRegion(flat)?.let { return Outcome(it, "2단:박스영역") }
+
+        // 3단: 텍스트 슬라이스 (200자, stop word 컷)
+        parseByTextSlice(flat)?.let { return Outcome(it, "3단:슬라이스") }
+
+        // 4단: 슬래시 패턴 (마지막 매치)
+        parseBySlashPattern(flat)?.let { return Outcome(it, "4단:슬래시") }
+
+        return Outcome(null, "실패")
+    }
+
+    // ───────────────────────── 1단 ─────────────────────────
+
+    private fun parseByLabelGroup(flat: List<ParseNode.Flat>): String? {
         val labels = flat.filter { isArrivalLabel(it.node.text) }
-
-        // 1단: 형제 노드
         for (lf in labels) {
-            val parent = lf.parent ?: continue
-            val sibTexts = parent.children
-                .filter { it !== lf.node }
-                .mapNotNull { it.text }
-                .filter { it.isNotBlank() && !isArrivalLabel(it) && !isDepartureLabel(it) }
-            val tok = DongTokenExtractor.extract(sibTexts)
-            if (tok != null) return Outcome(tok, "1단")
+            val labelBox = lf.parent ?: continue
+
+            // 후보 텍스트 수집 (라벨 박스 자체)
+            val candidates = ArrayList<String>(8)
+            collectTextsExcludingLabel(labelBox, lf.node, candidates)
+
+            // 라벨 박스의 부모 → 후속 형제 스캔
+            val gpFlat = flat.firstOrNull { it.node === labelBox }
+            val grandparent = gpFlat?.parent
+            if (grandparent != null) {
+                val labelBoxIdx = grandparent.indexOfChildIdentity(labelBox)
+                if (labelBoxIdx >= 0) {
+                    for (i in (labelBoxIdx + 1) until grandparent.children.size) {
+                        val sibling = grandparent.children[i]
+                        if (containsAnyArrivalSiblingStopLabel(sibling)) break
+                        collectTextsExcludingLabel(sibling, null, candidates)
+                    }
+                }
+            }
+            val tok = DongTokenExtractor.extract(candidates)
+            if (tok != null) return tok
+        }
+        return null
+    }
+
+    private fun collectTextsExcludingLabel(node: ParseNode, exclude: ParseNode?, out: MutableList<String>) {
+        node.forEachDescendant { n ->
+            if (n === exclude) return@forEachDescendant
+            val t = n.text
+            if (!t.isNullOrBlank()) out.add(t)
+        }
+    }
+
+    private fun containsAnyArrivalSiblingStopLabel(node: ParseNode): Boolean {
+        var found = false
+        node.forEachDescendant { n ->
+            val t = n.text?.trim() ?: return@forEachDescendant
+            if (t in SIBLING_STOP_LABELS || (t.endsWith(":") && t.dropLast(1) in SIBLING_STOP_LABELS)) {
+                found = true
+            }
+        }
+        return found
+    }
+
+    // ───────────────────────── 2단 ─────────────────────────
+
+    private fun parseByLabelBoxRegion(flat: List<ParseNode.Flat>): String? {
+        val labels = flat.filter { isArrivalLabel(it.node.text) }
+        if (labels.isEmpty()) return null
+
+        // 다른 stop label 박스들의 top 값 — 컷 기준
+        val stopBoxTops = ArrayList<Int>()
+        for (f in flat) {
+            val t = f.node.text?.trim() ?: continue
+            if (t in SIBLING_STOP_LABELS || (t.endsWith(":") && t.dropLast(1) in SIBLING_STOP_LABELS)) {
+                val box = f.parent ?: f.node
+                stopBoxTops.add(box.bounds.top)
+            }
         }
 
-        // 2단: 같은 행 + 오른쪽
         for (lf in labels) {
-            val labelBounds = lf.node.bounds
-            val sameRow = flat
-                .asSequence()
-                .filter { it.node !== lf.node }
-                .filter { !it.node.text.isNullOrBlank() }
-                .filter { !isArrivalLabel(it.node.text) && !isDepartureLabel(it.node.text) }
-                .filter { abs(it.node.bounds.centerY - labelBounds.centerY) <= Y_TOLERANCE }
-                .filter { it.node.bounds.left >= labelBounds.left }  // 라벨 왼쪽 끝 이상이면 같은 줄로 인정
-                .mapNotNull { it.node.text }
-                .toList()
-            val tok = DongTokenExtractor.extract(sameRow)
-            if (tok != null) return Outcome(tok, "2단")
-        }
+            val labelBox = lf.parent ?: lf.node
+            val regionTop = labelBox.bounds.top
+            val labelBottom = labelBox.bounds.bottom
+            val regionLeft = labelBox.bounds.right
 
-        // 3단: 텍스트 슬라이스
+            // 라벨 박스 아래 최초의 stop label box top
+            val nextStopTop = stopBoxTops
+                .filter { it > labelBottom }
+                .minOrNull() ?: Int.MAX_VALUE
+            val regionBottom = minOf(labelBottom + Y_BOX_EXTEND, nextStopTop)
+
+            // 영역 내 텍스트 수집:
+            //  (a) 라벨 박스 우측 (X >= regionLeft) + Y 같은 행 (라벨 박스의 Y 범위와 겹침)
+            //  (b) 라벨 박스 아래 영역 (Y > labelBottom, 단 < regionBottom)
+            val candidates = ArrayList<String>(16)
+            for (f in flat) {
+                if (f.node === lf.node) continue
+                val text = f.node.text
+                if (text.isNullOrBlank()) continue
+                if (isArrivalLabel(text)) continue
+                val b = f.node.bounds
+
+                // 같은 행: 라벨 박스 Y 범위와 겹침 + 우측
+                val sameRow = b.left >= regionLeft &&
+                        b.bottom >= regionTop && b.top <= labelBottom
+                // 아래 영역
+                val belowBox = b.top in (labelBottom + 1)..regionBottom
+                // 또는 라벨 박스 같은 Y 범위에 들어가는 임의 노드 (Y±tol 보조)
+                val nearY = abs(b.centerY - lf.node.bounds.centerY) <= Y_TOLERANCE &&
+                        b.left >= lf.node.bounds.left
+
+                if (sameRow || belowBox || nearY) {
+                    candidates.add(text)
+                }
+            }
+            val tok = DongTokenExtractor.extract(candidates)
+            if (tok != null) return tok
+        }
+        return null
+    }
+
+    // ───────────────────────── 3단 ─────────────────────────
+
+    private fun parseByTextSlice(flat: List<ParseNode.Flat>): String? {
         val joined = flat
             .mapNotNull { it.node.text }
             .filter { it.isNotBlank() }
             .joinToString(" ")
         val arrIdx = joined.indexOf("도착")
-        if (arrIdx >= 0) {
-            val end = (arrIdx + SLICE_MAX).coerceAtMost(joined.length)
-            var sliceEnd = end
-            // 슬라이스 안에서 "출발" 만나면 컷
-            val depIdx = joined.indexOf("출발", arrIdx + 1)
-            if (depIdx in (arrIdx + 1) until sliceEnd) sliceEnd = depIdx
-            val slice = joined.substring(arrIdx, sliceEnd)
-            val tok = DongTokenExtractor.extract(listOf(slice))
-            if (tok != null) return Outcome(tok, "3단")
-        }
+        if (arrIdx < 0) return null
 
-        return Outcome(null, "실패")
+        var sliceEnd = (arrIdx + SLICE_MAX).coerceAtMost(joined.length)
+        for (sw in SLICE_STOP_WORDS) {
+            val idx = joined.indexOf(sw, arrIdx + 1)
+            if (idx in (arrIdx + 1) until sliceEnd) sliceEnd = idx
+        }
+        val slice = joined.substring(arrIdx, sliceEnd)
+        return DongTokenExtractor.extract(listOf(slice))
+    }
+
+    // ───────────────────────── 4단 ─────────────────────────
+
+    /**
+     * 화면 전체 텍스트에서 슬래시 패턴 검색.
+     * "/ XX동 / *" 우선 (가장 신뢰), 없으면 "/ XX동 / YY".
+     * 같은 패턴이 여러 개면 마지막 매치 채택 — 도착지가 출발지보다 화면 아래.
+     */
+    private fun parseBySlashPattern(flat: List<ParseNode.Flat>): String? {
+        val joined = flat
+            .mapNotNull { it.node.text }
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+
+        val withStar = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*\*""")
+            .findAll(joined)
+            .map { it.groupValues[1] }
+            .filter { !DongTokenExtractor.isMetaToken(it) }
+            .toList()
+        if (withStar.isNotEmpty()) return withStar.last()
+
+        val general = Regex("""/\s*([가-힣]+(?:동|읍|면))\s*/\s*[^/\s]+""")
+            .findAll(joined)
+            .map { it.groupValues[1] }
+            .filter { !DongTokenExtractor.isMetaToken(it) }
+            .toList()
+        if (general.isNotEmpty()) return general.last()
+        return null
     }
 }

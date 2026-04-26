@@ -27,6 +27,18 @@ class ParseNode(
 
     data class Flat(val node: ParseNode, val parent: ParseNode?)
 
+    /** 자식 중 특정 노드의 인덱스 (referential equality). 없으면 -1 */
+    fun indexOfChildIdentity(child: ParseNode): Int {
+        for (i in children.indices) if (children[i] === child) return i
+        return -1
+    }
+
+    /** 자기 자신과 모든 후손 노드 순회 (DFS) */
+    fun forEachDescendant(visitor: (ParseNode) -> Unit) {
+        visitor(this)
+        for (c in children) c.forEachDescendant(visitor)
+    }
+
     companion object {
         /** AccessibilityNodeInfo 트리 → ParseNode 트리 변환 (런타임 전용) */
         fun fromAccessibility(root: AccessibilityNodeInfo, maxDepth: Int = 24): ParseNode {
