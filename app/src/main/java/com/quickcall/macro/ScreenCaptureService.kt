@@ -17,7 +17,9 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.DisplayMetrics
 import android.util.Log
 import android.view.WindowManager
@@ -39,9 +41,16 @@ class ScreenCaptureService : Service() {
     companion object {
         private const val TAG = "ScreenCaptureService"
         private const val NOTIF_ID = 1001
+        private const val NOTIF_ID_CAPTURE_DEAD = 1002
 
         const val EXTRA_RESULT_CODE = "result_code"
         const val EXTRA_RESULT_DATA = "result_data"
+
+        /** 헬스체크 주기 */
+        private const val HEALTH_CHECK_INTERVAL_MS = 30_000L
+
+        /** 마지막 성공 캡처 후 이 시간 동안 실패 시 죽은 것으로 간주 */
+        private const val DEAD_THRESHOLD_MS = 60_000L
 
         @Volatile
         var isRunning = false
@@ -54,6 +63,34 @@ class ScreenCaptureService : Service() {
     private var screenW = 0
     private var screenH = 0
     private var screenDpi = 0
+
+    private val healthHandler = Handler(Looper.getMainLooper())
+    private var lastCaptureSuccessAt = 0L
+    private val healthRunnable = object : Runnable {
+        override fun run() {
+            if (isProjectionDead()) {
+                Log.w(TAG, "헬스체크 실패: 캡처 죽음")
+                notifyCaptureDead()
+                stopSelf()
+                return
+            }
+            healthHandler.postDelayed(this, HEALTH_CHECK_INTERVAL_MS)
+        }
+    }
+
+    private fun isProjectionDead(): Boolean {
+        if (projection == null || virtualDisplay == null || imageReader == null) return true
+        // 1프레임 시도 — 너무 오래 실패가 이어지면 죽은 것
+        val image: Image? = try { imageReader?.acquireLatestImage() } catch (_: Throwable) { null }
+        if (image != null) {
+            try { image.close() } catch (_: Throwable) {}
+            lastCaptureSuccessAt = System.currentTimeMillis()
+            return false
+        }
+        // 아직 한 번도 성공 못 한 경우엔 시작 시점부터 카운트
+        if (lastCaptureSuccessAt == 0L) lastCaptureSuccessAt = System.currentTimeMillis()
+        return (System.currentTimeMillis() - lastCaptureSuccessAt) > DEAD_THRESHOLD_MS
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -90,6 +127,9 @@ class ScreenCaptureService : Service() {
 
         setupVirtualDisplay()
         isRunning = true
+        lastCaptureSuccessAt = System.currentTimeMillis()
+        healthHandler.removeCallbacks(healthRunnable)
+        healthHandler.postDelayed(healthRunnable, HEALTH_CHECK_INTERVAL_MS)
 
         // Accessibility 가 폴백을 요청할 때만 매칭 수행
         ImageMatchBridge.setListener {
@@ -101,9 +141,43 @@ class ScreenCaptureService : Service() {
 
     override fun onDestroy() {
         ImageMatchBridge.setListener(null)
+        healthHandler.removeCallbacks(healthRunnable)
         cleanup()
         isRunning = false
         super.onDestroy()
+    }
+
+    private fun notifyCaptureDead() {
+        try {
+            val nm = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = getString(R.string.notif_channel_id)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && nm.getNotificationChannel(channelId) == null) {
+                nm.createNotificationChannel(NotificationChannel(
+                    channelId,
+                    getString(R.string.notif_channel_name),
+                    NotificationManager.IMPORTANCE_HIGH
+                ))
+            }
+            val intent = Intent(this, MainActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                putExtra(MainActivity.EXTRA_RESTORE_CAPTURE, true)
+            }
+            val pi = PendingIntent.getActivity(
+                this, 1,
+                intent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val notif = Notification.Builder(this, channelId)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle(getString(R.string.notif_capture_dead_title))
+                .setContentText(getString(R.string.notif_capture_dead_text))
+                .setContentIntent(pi)
+                .setAutoCancel(true)
+                .build()
+            nm.notify(NOTIF_ID_CAPTURE_DEAD, notif)
+        } catch (t: Throwable) {
+            Log.w(TAG, "캡처 죽음 알림 실패", t)
+        }
     }
 
     /** 앱이 최근앱에서 스와이프 종료될 때 매크로 자동 정지 */
@@ -152,6 +226,9 @@ class ScreenCaptureService : Service() {
             Log.d(TAG, "이미지 비어있음")
             return
         }
+
+        // 캡처 성공 — 헬스체크 카운터 갱신
+        lastCaptureSuccessAt = System.currentTimeMillis()
 
         val bmp: Bitmap? = try {
             imageToBitmap(image)

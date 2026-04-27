@@ -165,6 +165,79 @@
                         android:layout_height="wrap_content"
                         android:text="@string/mode_2_label"/>
                 </RadioGroup>
+
+                <LinearLayout
+                    android:id="@+id/mode2Settings"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:layout_marginTop="8dp"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="@string/label_hold_duration"
+                            android:textSize="14sp"/>
+
+                        <TextView
+                            android:id="@+id/tvHoldDurationLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="5.0초"
+                            android:textStyle="bold"
+                            android:textSize="14sp"/>
+                    </LinearLayout>
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderHoldDuration"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="1.0"
+                        android:valueTo="10.0"
+                        android:stepSize="0.5"
+                        android:value="5.0"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="8dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="@string/label_tap_interval"
+                            android:textSize="14sp"/>
+
+                        <TextView
+                            android:id="@+id/tvTapIntervalLabel"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="1.0초"
+                            android:textStyle="bold"
+                            android:textSize="14sp"/>
+                    </LinearLayout>
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/sliderTapInterval"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="0.3"
+                        android:valueTo="2.0"
+                        android:stepSize="0.1"
+                        android:value="1.0"/>
+                </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -72,6 +72,16 @@ object PreferencesManager {
         get() = singleton.getBoolean(KEY_DEBUG_TOAST, false)
         set(value) = singleton.edit().putBoolean(KEY_DEBUG_TOAST, value).apply()
 
+    /** 모드 2 홀드 총 시간 (밀리초). 기본 5000, 1000~10000 범위 */
+    var mode2HoldDurationMs: Int
+        get() = singleton.getInt("mode2_hold_duration_ms", 5000)
+        set(value) = singleton.edit().putInt("mode2_hold_duration_ms", value.coerceIn(1000, 10000)).apply()
+
+    /** 모드 2 탭 간격 (밀리초). 기본 1000, 최소 300 */
+    var mode2TapIntervalMs: Int
+        get() = singleton.getInt("mode2_tap_interval_ms", 1000)
+        set(value) = singleton.edit().putInt("mode2_tap_interval_ms", value.coerceAtLeast(300)).apply()
+
     var macroMode: MacroMode
         get() = try {
             MacroMode.valueOf(

@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v9 - 통칭 매칭 + 동/읍/면 세부 선택)
+# QuickCallMacro 인수인계 문서 (v10 - 모드 2 시간 설정 + 캡처 헬스체크)
 
 > 작성일: 2026-04-27
-> 상태: v1.0.5 후보 리스트 매칭 + 동 단위 슬롯 편집 + v1.0.4 자동 마이그레이션 + 단위 테스트 34건 (모두 통과)
+> 상태: v1.0.6 모드2 홀드/탭 슬라이더 + ScreenCaptureService 헬스체크 + 캡처 죽음 알림 + 단위 테스트 39건 (모두 통과)
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -123,6 +123,26 @@ app/src/test/java/com/quickcall/macro/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.6 변경 요약 (2026-04-27)
+- **모드 2 시간 사용자 설정**
+  - 홀드 시간 슬라이더: 1.0~10.0초 (0.5초 단위, 기본 5.0초)
+  - 탭 간격 슬라이더: 0.3~2.0초 (0.1초 단위, 기본 1.0초)
+  - 모드 2 라디오 선택 시에만 슬라이더 카드 표시
+  - PreferencesManager: `mode2HoldDurationMs` (1000~10000), `mode2TapIntervalMs` (≥300, 자동 클램프)
+  - CallMacroService.mode2StartSequence 가 Pref 값 사용 (상수 제거)
+  - 슬라이더 놓을 때 자동 저장 + 토스트 안내
+- **ScreenCaptureService 헬스체크**
+  - 30초 주기로 projection/virtualDisplay/imageReader 상태 확인
+  - 1프레임 acquireLatestImage 성공 시 lastCaptureSuccessAt 갱신
+  - 마지막 성공 후 60초 동안 실패 지속 시 "죽음" 판정 → 알림 발송 + stopSelf
+  - 알림 (NOTIF_ID_CAPTURE_DEAD) 탭 → MainActivity 가 EXTRA_RESTORE_CAPTURE 인텐트 수신
+  - MainActivity: 복구 다이얼로그 ("권한 허용" → MediaProjection 재요청)
+- **단위 테스트 39건** (5건 추가)
+  - Mode2TimingTest: 홀드/탭 조합별 확정 탭 횟수 검증 (5/3/1/10초 + 0.3/0.5/1.0초)
+  - 모든 유효 조합에서 최소 1회 탭 보장
+- **시퀀스 진입 디버그 토스트 강화**
+  - "모드2 시퀀스 시작 (홀드 5000ms, 간격 1000ms)" — 현재 적용된 시간 노출
 
 ## v1.0.5 변경 요약 (2026-04-27)
 - **통칭 도착지 매칭** — "동탄/광교/위례/송도" 같은 신도시·택지 통칭 콜 추출.

@@ -37,12 +37,6 @@ class CallMacroService : AccessibilityService() {
     companion object {
         private const val TAG = "CallMacroService"
 
-        /** 모드 2: 확정 반복 총 시간 */
-        private const val MODE2_HOLD_DURATION_MS = 5000L
-
-        /** 모드 2: 확정 반복 간격 */
-        private const val MODE2_TICK_INTERVAL_MS = 1000L
-
         @Volatile
         var instance: CallMacroService? = null
             private set
@@ -181,32 +175,35 @@ class CallMacroService : AccessibilityService() {
 
         sequenceRunning = true
         sequenceStartedAt = System.currentTimeMillis()
-        Log.i(TAG, "모드 2 시퀀스 시작")
-        debug("모드2 시퀀스 시작")
+        // Pref 에서 사용자 설정 시간 읽기 (기본 5000 / 1000)
+        val holdMs = PreferencesManager.mode2HoldDurationMs.toLong()
+        val tickMs = PreferencesManager.mode2TapIntervalMs.toLong()
+        Log.i(TAG, "모드 2 시퀀스 시작 (hold=${holdMs}ms, tick=${tickMs}ms)")
+        debug("모드2 시퀀스 시작 (홀드 ${holdMs}ms, 간격 ${tickMs}ms)")
         StopModalService.show(this)
 
         // 즉시 첫 "확정" 탭
         tapConfirmNow()
 
-        // 1초마다 "확정" 반복 (5초까지)
-        var t = MODE2_TICK_INTERVAL_MS
-        while (t < MODE2_HOLD_DURATION_MS) {
+        // tickMs 간격으로 "확정" 반복 (holdMs 까지)
+        var t = tickMs
+        while (t < holdMs) {
             val r = Runnable {
                 if (!sequenceRunning) return@Runnable
                 tapConfirmNow()
             }
             sequenceRunnables.add(r)
             mainHandler.postDelayed(r, t)
-            t += MODE2_TICK_INTERVAL_MS
+            t += tickMs
         }
 
-        // 5초 후 "확정추적" 1회 탭
+        // holdMs 후 "확정추적" 1회 탭
         val finalR = Runnable {
             if (!sequenceRunning) return@Runnable
             tapTrackOnceAndFinish()
         }
         sequenceRunnables.add(finalR)
-        mainHandler.postDelayed(finalR, MODE2_HOLD_DURATION_MS)
+        mainHandler.postDelayed(finalR, holdMs)
     }
 
     private fun tapConfirmNow() {

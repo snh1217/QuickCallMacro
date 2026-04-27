@@ -16,6 +16,7 @@ import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.slider.Slider
 import com.quickcall.macro.databinding.ActivityMainBinding
 
 class MainActivity : AppCompatActivity() {
@@ -23,6 +24,9 @@ class MainActivity : AppCompatActivity() {
     companion object {
         /** OverlayService 등에서 "시작" 트리거를 위해 액티비티를 띄울 때 사용 */
         const val EXTRA_REQUEST_START = "request_start"
+
+        /** ScreenCaptureService 헬스체크 실패 시 복구 다이얼로그 노출 */
+        const val EXTRA_RESTORE_CAPTURE = "restore_capture"
 
         /** 외부(MacroController) 에서 액티비티 컨텍스트 없이 권한 체크할 수 있도록 */
         fun isAccessibilityEnabledStatic(ctx: Context): Boolean {
@@ -80,9 +84,21 @@ class MainActivity : AppCompatActivity() {
         if (intent?.getBooleanExtra(EXTRA_REQUEST_START, false) == true) {
             // 의도적 트리거 — 다음 onResume 한 번만 처리하고 클리어
             intent.removeExtra(EXTRA_REQUEST_START)
-            // UI 가 준비된 다음 호출되도록 post
             b.root.post { startMacroFromUi() }
         }
+        if (intent?.getBooleanExtra(EXTRA_RESTORE_CAPTURE, false) == true) {
+            intent.removeExtra(EXTRA_RESTORE_CAPTURE)
+            b.root.post { showRestoreCaptureDialog() }
+        }
+    }
+
+    private fun showRestoreCaptureDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.dlg_restore_capture_title)
+            .setMessage(R.string.dlg_restore_capture_msg)
+            .setPositiveButton(R.string.dlg_restore_button) { _, _ -> requestProjectionDialog() }
+            .setNegativeButton(R.string.dlg_cancel, null)
+            .show()
     }
 
     override fun onResume() {
@@ -135,6 +151,42 @@ class MainActivity : AppCompatActivity() {
         b.btnDistrictManage.setOnClickListener {
             startActivity(Intent(this, com.quickcall.macro.ui.DistrictSettingsActivity::class.java))
         }
+
+        // 모드 라디오 변경 시 mode2Settings 표시 토글
+        b.rgMode.setOnCheckedChangeListener { _, checkedId ->
+            b.mode2Settings.visibility =
+                if (checkedId == b.rbMode2.id) android.view.View.VISIBLE
+                else android.view.View.GONE
+        }
+
+        // 홀드 시간 슬라이더
+        b.sliderHoldDuration.addOnChangeListener { _, value, _ ->
+            b.tvHoldDurationLabel.text = getString(R.string.fmt_seconds, value)
+        }
+        b.sliderHoldDuration.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {}
+            override fun onStopTrackingTouch(slider: Slider) {
+                val v = slider.value
+                PreferencesManager.mode2HoldDurationMs = (v * 1000).toInt()
+                Toast.makeText(this@MainActivity,
+                    getString(R.string.fmt_hold_saved, v), Toast.LENGTH_SHORT).show()
+            }
+        })
+
+        // 탭 간격 슬라이더
+        b.sliderTapInterval.addOnChangeListener { _, value, _ ->
+            b.tvTapIntervalLabel.text = getString(R.string.fmt_seconds, value)
+        }
+        b.sliderTapInterval.addOnSliderTouchListener(object : Slider.OnSliderTouchListener {
+            override fun onStartTrackingTouch(slider: Slider) {}
+            override fun onStopTrackingTouch(slider: Slider) {
+                val v = slider.value
+                PreferencesManager.mode2TapIntervalMs = (v * 1000).toInt()
+                Toast.makeText(this@MainActivity,
+                    getString(R.string.fmt_tap_saved, v), Toast.LENGTH_SHORT).show()
+            }
+        })
+
         b.btnSave.setOnClickListener { saveValues() }
     }
 
@@ -197,6 +249,23 @@ class MainActivity : AppCompatActivity() {
             MacroMode.MODE_1_INSTANT_TRACK -> b.rbMode1.isChecked = true
             MacroMode.MODE_2_HOLD_THEN_TRACK -> b.rbMode2.isChecked = true
         }
+        b.mode2Settings.visibility =
+            if (PreferencesManager.macroMode == MacroMode.MODE_2_HOLD_THEN_TRACK)
+                android.view.View.VISIBLE
+            else android.view.View.GONE
+
+        val holdSec = (PreferencesManager.mode2HoldDurationMs / 1000f)
+            .coerceIn(1.0f, 10.0f)
+            .let { (Math.round(it * 2) / 2f) }  // 0.5초 단위 라운딩
+        b.sliderHoldDuration.value = holdSec
+        b.tvHoldDurationLabel.text = getString(R.string.fmt_seconds, holdSec)
+
+        val tapSec = (PreferencesManager.mode2TapIntervalMs / 1000f)
+            .coerceIn(0.3f, 2.0f)
+            .let { (Math.round(it * 10) / 10f) }
+        b.sliderTapInterval.value = tapSec
+        b.tvTapIntervalLabel.text = getString(R.string.fmt_seconds, tapSec)
+
         b.swDebugToast.isChecked = PreferencesManager.debugToast
     }
 

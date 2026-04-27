@@ -44,7 +44,19 @@
     <!-- 동작 모드 -->
     <string name="title_macro_mode">매크로 동작 모드</string>
     <string name="mode_1_label">모드 1: 콜 즉시 확정추적</string>
-    <string name="mode_2_label">모드 2: 5초간 확정 → 확정추적</string>
+    <string name="mode_2_label">모드 2: 일정시간 확정 후 확정추적</string>
+    <string name="label_hold_duration">홀드 시간</string>
+    <string name="label_tap_interval">탭 간격</string>
+    <string name="fmt_seconds">%1$.1f초</string>
+    <string name="fmt_hold_saved">홀드 시간 %1$.1f초 저장됨</string>
+    <string name="fmt_tap_saved">탭 간격 %1$.1f초 저장됨</string>
+
+    <!-- 캡처 헬스체크 -->
+    <string name="notif_capture_dead_title">이미지 폴백 꺼짐</string>
+    <string name="notif_capture_dead_text">이미지 매칭이 중단됐습니다. 탭하면 복구할 수 있어요.</string>
+    <string name="dlg_restore_capture_title">이미지 폴백 복구</string>
+    <string name="dlg_restore_capture_msg">이미지 매칭이 중단됐습니다. 계속 사용하려면 화면 캡처 권한을 다시 허용해주세요.</string>
+    <string name="dlg_restore_button">권한 허용</string>
 
     <!-- 중지 모달 -->
     <string name="stop_modal_title">매크로 시퀀스 동작중</string>
