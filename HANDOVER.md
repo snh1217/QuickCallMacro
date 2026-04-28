@@ -1,7 +1,7 @@
-# QuickCallMacro 인수인계 문서 (v10 - 모드 2 시간 설정 + 캡처 헬스체크)
+# QuickCallMacro 인수인계 문서 (v11 - 모드 2 필터 우회 버그 + 자동중지)
 
-> 작성일: 2026-04-27
-> 상태: v1.0.6 모드2 홀드/탭 슬라이더 + ScreenCaptureService 헬스체크 + 캡처 죽음 알림 + 단위 테스트 39건 (모두 통과)
+> 작성일: 2026-04-29
+> 상태: v1.0.7 도착지 필터 게이트 단일화, 슬롯 캐시 JSON 기준 무효화, 매 tap 재검증, 자동중지 자동 OFF, 단위 테스트 46건 (모두 통과)
 
 ## 한 줄 요약
 Android Accessibility 기반 퀵서비스 콜잡이 매크로 앱. 빌드 가능 / GitHub Public 저장소 / Release 자동화 / 다운로드 URL까지 확보된 상태. 다음 단계는 실기기 검증과 튜닝.
@@ -123,6 +123,37 @@ app/src/test/java/com/quickcall/macro/
 - [ScreenCaptureService.kt:67](app/src/main/java/com/quickcall/macro/ScreenCaptureService.kt#L67) `getParcelableExtra(String)` deprecated 경고 (API 33+). 동작엔 영향 없음. 향후 `getParcelableExtra(name, Intent::class.java)` 분기 처리 권장.
 - GitHub Actions 액션들이 모두 Node 20 기반. 2026-08-15 자동 PR 예약 걸려있음 (routine `trig_01W8BhfG7GFmWt2wiAiN3HDC`).
 - 디버그 키로 서명된 APK. 정식 배포 시 release keystore 작업 필요.
+
+## v1.0.7 변경 요약 (2026-04-29) — 긴급 버그 수정 + 자동중지
+
+### 긴급 버그: 모드 2 가 도착지 필터를 우회
+- **원인**: `passDistrictFilter` 의 슬롯 키 캐시가 `activeSlotId` 만 기준으로 무효화되었고, 캐시가 비어있으면 (`cachedSlotKeys.isEmpty() return true`) **모든 콜 통과**로 처리. 슬롯 내용을 편집해도 같은 ID 면 캐시가 갱신 안 됐고, 빈 셋이라도 `pass` 라서 모드2 시퀀스가 슬롯 범위 밖 콜에서도 시작됨.
+- **수정**: 캐시 키를 `(activeSlotId, slotJson)` 페어로 변경 → 슬롯 편집 즉시 반영. 활성 슬롯이 0이 아닌데 슬롯 키 셋이 비어있으면 **차단**으로 정책 변경.
+- **순수 필터 모듈** 분리: [DistrictFilter.kt](app/src/main/java/com/quickcall/macro/parser/DistrictFilter.kt) — 안드로이드 의존성 없음, 단위 테스트 가능
+  - `Result.Pass(tier, tokens, matchedKeys)`
+  - `Result.BlockEmptySlot` / `BlockParseFail` / `BlockNoMatch(tier, tokens, destKeys)`
+- **모드 2 매 tap 재검증**: `tapConfirmNow` / `tapTrackOnceAndFinish` 진입 직후 `passDistrictFilter` 재호출. 시퀀스 도중 다른 콜로 바뀌어도 안전 차단.
+- **디버그 토스트 일관화**:
+  - "활성 슬롯 없음 → 통과"
+  - "필터 통과 [1단:라벨박스]: 동탄 → [동탄]"
+  - "필터 차단 [1단:라벨박스]: 강남역삼동 → [강남, 강남역삼, 역삼]"
+  - "슬롯 비어있음 → 차단 (슬롯 편집 필요)"
+  - "도착지 노드 미발견 → 차단"
+
+### 자동중지 버튼 자동 감지
+- accessibility_service_config 에 `typeViewClicked` 추가
+- `onAccessibilityEvent` 가 `TYPE_VIEW_CLICKED` 분기 → `handleClickEvent`
+- `event.text` / `contentDescription` / `source.text` / `source.contentDescription` 결합 텍스트에 "자동중지" 또는 "자동 중지" 포함 시 `MacroController.stop(this)` 호출 → 매크로 OFF
+
+### 단위 테스트 46건 (7건 추가)
+- DistrictFilterTest 7건:
+  - 화성시 슬롯 + 강남 도착 → 차단
+  - 화성시 슬롯 + 동탄 도착 → 통과
+  - 슬롯 비어있음 → 차단
+  - 도착지 추출 실패 → 차단
+  - 통칭 동탄 도착 → 통과
+  - 시퀀스 중 다른 콜로 바뀐 시뮬레이션 → 차단
+  - 출발지에 매칭 가능한 동 있어도 도착지 기준만 → 차단
 
 ## v1.0.6 변경 요약 (2026-04-27)
 - **모드 2 시간 사용자 설정**

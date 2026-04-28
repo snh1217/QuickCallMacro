@@ -13,7 +13,9 @@ import android.widget.Toast
 import com.quickcall.macro.data.DistrictRepository
 import com.quickcall.macro.data.DistrictSlot
 import com.quickcall.macro.parser.DestinationParser
+import com.quickcall.macro.parser.DistrictFilter
 import com.quickcall.macro.parser.DistrictKeyGenerator
+import com.quickcall.macro.parser.ParseNode
 
 /**
  * 핵심 매크로 서비스.
@@ -63,8 +65,9 @@ class CallMacroService : AccessibilityService() {
     /** 진행 중인 시퀀스 Runnable 들 (취소용) */
     private val sequenceRunnables = mutableListOf<Runnable>()
 
-    /** 슬롯 변경 감지 + 키 캐싱 */
+    /** 슬롯 캐싱: id + JSON 모두 같을 때만 재사용 (슬롯 내용 편집 즉시 반영) */
     private var cachedSlotId = -1
+    private var cachedSlotJson: String? = null
     private var cachedSlotKeys: Set<String> = emptySet()
 
     override fun onServiceConnected() {
@@ -82,12 +85,13 @@ class CallMacroService : AccessibilityService() {
     override fun onInterrupt() { /* no-op */ }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        if (!PreferencesManager.enabled) return
         if (event == null) return
 
         when (event.eventType) {
+            AccessibilityEvent.TYPE_VIEW_CLICKED -> handleClickEvent(event)
             AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED,
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED -> {
+                if (!PreferencesManager.enabled) return
                 // 시퀀스 진행중이면 화면 이탈 감지
                 if (sequenceRunning) {
                     val root = rootInActiveWindow
@@ -100,6 +104,25 @@ class CallMacroService : AccessibilityService() {
                 }
                 scanAndTap()
             }
+        }
+    }
+
+    /**
+     * 사용자가 화면에서 직접 누른 클릭 이벤트.
+     * "자동중지" 버튼을 눌렀다면 매크로 자체를 OFF.
+     */
+    private fun handleClickEvent(event: AccessibilityEvent) {
+        if (!PreferencesManager.enabled) return
+        val pieces = StringBuilder()
+        event.text.forEach { pieces.append(it).append(' ') }
+        event.contentDescription?.let { pieces.append(it).append(' ') }
+        event.source?.text?.let { pieces.append(it).append(' ') }
+        event.source?.contentDescription?.let { pieces.append(it).append(' ') }
+        val combined = pieces.toString()
+        if (combined.contains("자동중지") || combined.contains("자동 중지")) {
+            Log.i(TAG, "자동중지 감지 → 매크로 OFF")
+            debug("자동중지 감지 → 매크로 OFF")
+            try { MacroController.stop(this) } catch (_: Throwable) {}
         }
     }
 
@@ -208,6 +231,17 @@ class CallMacroService : AccessibilityService() {
 
     private fun tapConfirmNow() {
         val root = rootInActiveWindow ?: return
+        // 매 tap 직전 화면 + 필터 재검증 — 시퀀스 도중 다른 콜로 바뀌어도 안전
+        if (!isCallDetailScreenVisible(root)) {
+            debug("모드2 화면 이탈 → 시퀀스 중단")
+            cancelSequence()
+            return
+        }
+        if (!passDistrictFilter(root)) {
+            debug("모드2 필터 미통과 → 시퀀스 중단")
+            cancelSequence()
+            return
+        }
         val node = findConfirmNode(root) ?: run {
             Log.d(TAG, "확정 노드 없음")
             return
@@ -226,6 +260,12 @@ class CallMacroService : AccessibilityService() {
     private fun tapTrackOnceAndFinish() {
         val root = rootInActiveWindow
         if (root != null) {
+            // 마지막 추적 탭도 필터 재검증
+            if (!passDistrictFilter(root)) {
+                debug("모드2 추적 직전 필터 미통과 → 시퀀스 중단")
+                finishSequence()
+                return
+            }
             val node = findNodeByText(root, "확정추적", secondary = listOf("추적"))
             if (node != null) {
                 val rect = Rect()
@@ -362,53 +402,56 @@ class CallMacroService : AccessibilityService() {
      * 도착지 파싱 실패 시 안전하게 차단.
      * 활성 슬롯 없거나 슬롯이 비어있으면 항상 통과.
      */
+    /**
+     * 도착지 필터 통과 여부.
+     *  - activeSlotId == 0 → 항상 통과 (사용 안 함)
+     *  - activeSlotId != 0 + 슬롯 비어있음 → 차단 (안전 정책)
+     *  - 도착지 추출 실패 → 차단
+     *  - 후보 키 ∩ 슬롯 키 비어있음 → 차단
+     *
+     *  슬롯 캐시는 active id + JSON 문자열 둘 다 일치할 때만 재사용 → 슬롯 편집 즉시 반영.
+     */
     private fun passDistrictFilter(root: AccessibilityNodeInfo): Boolean {
         val active = PreferencesManager.activeSlotId
-        if (active == 0) return true
+        if (active == 0) {
+            debug("활성 슬롯 없음 → 통과")
+            return true
+        }
 
-        // 슬롯 로드 (활성 변경 시 캐시 재계산)
-        if (cachedSlotId != active) {
+        val json = PreferencesManager.getSlotSelectionJson(active)
+        if (cachedSlotId != active || cachedSlotJson != json) {
             try { DistrictRepository.ensureLoaded(applicationContext) } catch (_: Throwable) {}
             val slot = DistrictSlot.fromJson(
-                active,
-                PreferencesManager.getSlotName(active),
-                PreferencesManager.getSlotSelectionJson(active)
+                active, PreferencesManager.getSlotName(active), json
             )
             cachedSlotKeys = DistrictRepository.normalizedKeysForSlot(slot)
             cachedSlotId = active
+            cachedSlotJson = json
         }
-        if (cachedSlotKeys.isEmpty()) return true
 
-        // 1) 도착지 후보 추출 (4단 폴백)
-        val outcome = try {
-            DestinationParser.parse(root)
-        } catch (t: Throwable) {
-            Log.w(TAG, "DestinationParser 예외", t)
-            DestinationParser.Outcome(emptyList(), "실패")
-        }
-        val candidates = outcome.tokens
-        if (candidates.isEmpty()) {
-            debug("도착지 노드 미발견 → 차단")
-            return false
-        }
-        val display = if (candidates.size <= 5) candidates.toString()
-        else candidates.take(5).toString().dropLast(1) + ", ... +${candidates.size - 5}]"
-        debug("도착 추출 [${outcome.tier}]: ${candidates.first()} 후보 $display")
+        val pn = try { ParseNode.fromAccessibility(root) }
+        catch (t: Throwable) { Log.w(TAG, "ParseNode 변환 실패", t); null }
+            ?: run { debug("도착지 노드 변환 실패 → 차단"); return false }
 
-        // 2) 후보들 → 키 집합 union → 슬롯 키와 교집합
-        val destKeys = HashSet<String>()
-        for (c in candidates) {
-            destKeys.addAll(DistrictKeyGenerator.keysFromDongToken(c))
-            // 통칭(접미사 없는 한글) 도 그대로 키 후보로 추가
-            destKeys.add(DistrictKeyGenerator.normalizeKey(c, 2))
+        val result = DistrictFilter.check(pn, cachedSlotKeys)
+        return when (result) {
+            is DistrictFilter.Result.Pass -> {
+                debug("필터 통과 [${result.tier}]: ${result.tokens.first()} → ${result.matchedKeys}")
+                true
+            }
+            is DistrictFilter.Result.BlockEmptySlot -> {
+                debug("슬롯 비어있음 → 차단 (슬롯 편집 필요)")
+                false
+            }
+            is DistrictFilter.Result.BlockParseFail -> {
+                debug("도착지 노드 미발견 → 차단")
+                false
+            }
+            is DistrictFilter.Result.BlockNoMatch -> {
+                debug("필터 차단 [${result.tier}]: ${result.tokens.first()} → ${result.destKeys}")
+                false
+            }
         }
-        val intersection = destKeys.intersect(cachedSlotKeys)
-        if (intersection.isEmpty()) {
-            debug("필터 차단: ${candidates.first()} → $destKeys")
-            return false
-        }
-        debug("필터 통과: ${candidates.first()} → $intersection")
-        return true
     }
 
     private fun debug(msg: String) {
